@@ -3,7 +3,7 @@ name: Deploy Notebooks
 on:
   push:
     branches: [main]
-    paths: 
+    paths:
       - 'sf_nbs/**'
   workflow_dispatch:
     inputs:
@@ -51,11 +51,13 @@ jobs:
           cli-version: "latest"
 
       - name: Configure Snowflake Connection
+        env:
+          SNOWFLAKE_PASSWORD: ${{ env.SNOWFLAKE_PASSWORD }}
         run: |
-          snow connection add ml_pipeline \
+          snow connection add \
+            --connection-name ml_pipeline \
             --account ${{ env.SNOWFLAKE_ACCOUNT }} \
             --user ${{ env.SNOWFLAKE_USER }} \
-            --password ${{ env.SNOWFLAKE_PASSWORD }} \
             --role ${{ env.SNOWFLAKE_ROLE }} \
             --warehouse ${{ env.SNOWFLAKE_WAREHOUSE }} \
             --database ${{ env.SNOWFLAKE_DATABASE }} \
@@ -125,12 +127,14 @@ jobs:
           cli-version: "latest"
 
       - name: Configure Snowflake Connection
+        env:
+          SNOWFLAKE_PASSWORD: ${{ env.SNOWFLAKE_PASSWORD }}
         run: |
           # Create Snowflake CLI connection
-          snow connection add ml_pipeline \
+          snow connection add \
+            --connection-name ml_pipeline \
             --account ${{ env.SNOWFLAKE_ACCOUNT }} \
             --user ${{ env.SNOWFLAKE_USER }} \
-            --password ${{ env.SNOWFLAKE_PASSWORD }} \
             --role ${{ env.SNOWFLAKE_ROLE }} \
             --warehouse ${{ env.SNOWFLAKE_WAREHOUSE }} \
             --database ${{ env.SNOWFLAKE_DATABASE }} \
@@ -199,8 +203,8 @@ jobs:
             CREATE OR REPLACE NOTEBOOK ${{ env.SNOWFLAKE_DATABASE }}.${{ env.SNOWFLAKE_SCHEMA }}.${notebook_name_upper}_NOTEBOOK
             FROM '@${{ env.SNOWFLAKE_DATABASE }}.${{ env.SNOWFLAKE_SCHEMA }}.ML_PIPELINE_REPO/branches/${{ github.ref_name }}/sf_nbs/'
             MAIN_FILE = '$(basename "$notebook_path")'
-            RUNTIME_NAME = 'SYSTEM\$BASIC_RUNTIME'
-            COMPUTE_POOL = 'HOL_COMPUTE_POOL_HIGHMEM'
+                RUNTIME_NAME = 'SYSTEM\$BASIC_RUNTIME'
+                COMPUTE_POOL = 'HOL_COMPUTE_POOL_HIGHMEM'
             QUERY_WAREHOUSE = '${{ env.SNOWFLAKE_WAREHOUSE }}'
             EXTERNAL_ACCESS_INTEGRATIONS = ('ALLOW_ALL_ACCESS_INTEGRATION')
             "; then
