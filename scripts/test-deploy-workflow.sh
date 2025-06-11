@@ -146,8 +146,8 @@ else
     echo "Check the API_INTEGRATION setup in Snowflake"
 fi
 
-# # Cleanup
-# echo -e "\n${BLUE}🧹 Cleaning up test artifacts${NC}"
-# snow sql -q "DROP NOTEBOOK IF EXISTS ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.ML_PIPELINE_NOTEBOOK;" > /dev/null 2>&1 || true
-# snow sql -q "DROP GIT REPOSITORY IF EXISTS ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.ML_PIPELINE_REPO;" > /dev/null 2>&1 || true
-# echo -e "${GREEN}✅ Cleanup completed${NC}" 
+# Cleanup
+echo -e "\n${BLUE}🧹 Cleaning up test artifacts${NC}"
+snow sql -q "DROP NOTEBOOK IF EXISTS ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.ML_PIPELINE_NOTEBOOK;" > /dev/null 2>&1 || true
+snow sql -q "DROP GIT REPOSITORY IF EXISTS ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.ML_PIPELINE_REPO;" > /dev/null 2>&1 || true
+echo -e "${GREEN}✅ Cleanup completed${NC}" 

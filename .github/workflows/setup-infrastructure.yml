@@ -125,11 +125,46 @@ jobs:
 
       - name: Setup Infrastructure
         if: ${{ steps.check.outputs.database_exists == 'false' || steps.check.outputs.schema_exists == 'false' || steps.check.outputs.warehouse_exists == 'false' || steps.check.outputs.compute_pool_exists == 'false' || inputs.force_recreate }}
+        env:
+          ENV: ${{ inputs.environment || 'development' }}
         run: |
-          echo "🚀 Running infrastructure setup..."
+          echo "🚀 Running infrastructure setup for environment: $ENV"
           
           # Make setup script executable
           chmod +x ./cli-setup.sh
+          
+          # Show available configuration files
+          echo "📋 Available Configuration Files:"
+          ls -la config*.yaml || echo "  No config files found"
+          echo ""
+          
+          # Determine which config file will be used
+          if [ "$ENV" != "development" ] && [ -f "config-${ENV}.yaml" ]; then
+            CONFIG_FILE="config-${ENV}.yaml"
+            echo "🎯 Using environment-specific config: $CONFIG_FILE"
+          elif [ -f "config.yaml" ]; then
+            CONFIG_FILE="config.yaml"
+            echo "🎯 Using default config: $CONFIG_FILE"
+          else
+            echo "⚠️  No config file found, using environment variables only"
+          fi
+          
+          # Show environment configuration
+          echo "📋 Environment Configuration:"
+          echo "  Environment: $ENV"
+          echo "  Config File: ${CONFIG_FILE:-none}"
+          echo "  Database: $SNOWFLAKE_DATABASE"
+          echo "  Schema: $SNOWFLAKE_SCHEMA" 
+          echo "  Warehouse: $SNOWFLAKE_WAREHOUSE"
+          
+          if [ -n "${CONFIG_FILE:-}" ]; then
+            echo "  Config Values:"
+            echo "    Compute Pool: $(yq '.snowflake.compute_pool.name // "HOL_COMPUTE_POOL_HIGHMEM"' "$CONFIG_FILE")"
+            echo "    Pool Family: $(yq '.snowflake.compute_pool.family // "HIGHMEM_X64_M"' "$CONFIG_FILE")"
+            echo "    Max Nodes: $(yq '.snowflake.compute_pool.max_nodes // "2"' "$CONFIG_FILE")"
+            echo "    Integration: $(yq '.snowflake.external_access_integration.name // "ALLOW_ALL_ACCESS_INTEGRATION"' "$CONFIG_FILE")"
+          fi
+          echo ""
           
           # Run infrastructure setup
           if [ "${{ inputs.force_recreate }}" == "true" ]; then
@@ -137,10 +172,13 @@ jobs:
             echo "FORCE_RECREATE=true" >> $GITHUB_ENV
           fi
           
-          # Run the setup script
+          # Set config file for the script
+          export CONFIG_FILE="${CONFIG_FILE:-config.yaml}"
+          
+          # Run the setup script with environment awareness
           ./cli-setup.sh
           
-          echo "✅ Infrastructure setup completed"
+          echo "✅ Infrastructure setup completed for $ENV environment using $CONFIG_FILE"
 
       - name: Skip Infrastructure Setup
         if: ${{ steps.check.outputs.database_exists == 'true' && steps.check.outputs.schema_exists == 'true' && steps.check.outputs.warehouse_exists == 'true' && steps.check.outputs.compute_pool_exists == 'true' && !inputs.force_recreate }}

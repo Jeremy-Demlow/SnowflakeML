@@ -20,37 +20,109 @@ if ! command -v yq &> /dev/null; then
     fi
 fi
 
-# Load configuration from YAML
+# Load configuration from YAML and environment variables
 load_config() {
-    if [ ! -f "$CONFIG_FILE" ]; then
-        error "Configuration file $CONFIG_FILE not found"
-    fi
-    
-    WAREHOUSE_NAME=$(yq '.snowflake.warehouse.name' "$CONFIG_FILE")
-    DATABASE_NAME=$(yq '.snowflake.database.name' "$CONFIG_FILE")
-    SCHEMA_NAME=$(yq '.snowflake.schema.name' "$CONFIG_FILE")
-    ROLE_NAME=$(yq '.snowflake.role.name' "$CONFIG_FILE")
-    COMPUTE_POOL_NAME=$(yq '.snowflake.compute_pool.name' "$CONFIG_FILE")
-    STAGE_NAME_REVIEW=$(yq '.data.stages.review_stage.name' "$CONFIG_FILE")
-    STAGE_NAME_REVIEWS=$(yq '.data.stages.reviews_text_stage.name' "$CONFIG_FILE")
-    NETWORK_RULE_NAME=$(yq '.snowflake.network_rule.name' "$CONFIG_FILE")
-    INTEGRATION_NAME=$(yq '.snowflake.external_access_integration.name' "$CONFIG_FILE")
-    
-    # Environment-specific overrides
+    # Determine environment
     ENV="${ENV:-development}"
-    if [ "$ENV" != "development" ]; then
-        local warehouse_size=$(yq ".environment.$ENV.warehouse_size // .snowflake.warehouse.size" "$CONFIG_FILE")
-        local max_nodes=$(yq ".environment.$ENV.max_compute_nodes // .snowflake.compute_pool.max_nodes" "$CONFIG_FILE")
-        
-        # Override warehouse size for environment
-        WAREHOUSE_SIZE="$warehouse_size"
-        MAX_NODES="$max_nodes"
-    else
-        WAREHOUSE_SIZE=$(yq '.snowflake.warehouse.size' "$CONFIG_FILE")
-        MAX_NODES=$(yq '.snowflake.compute_pool.max_nodes' "$CONFIG_FILE")
+    
+    # Auto-select environment-specific config file if not explicitly set
+    if [ "$CONFIG_FILE" = "config.yaml" ] && [ "$ENV" != "development" ]; then
+        ENV_CONFIG_FILE="config-${ENV}.yaml"
+        if [ -f "$ENV_CONFIG_FILE" ]; then
+            CONFIG_FILE="$ENV_CONFIG_FILE"
+            log "Auto-selected environment config: $CONFIG_FILE"
+        fi
     fi
     
-    log "Loaded configuration from $CONFIG_FILE (environment: $ENV)"
+    # Check for GitHub Actions environment variables first (takes precedence)
+    if [ -n "${SNOWFLAKE_DATABASE:-}" ] && [ -n "${SNOWFLAKE_SCHEMA:-}" ] && [ -n "${SNOWFLAKE_WAREHOUSE:-}" ]; then
+        log "Using environment variables from GitHub Actions (config file: $CONFIG_FILE for defaults)"
+        DATABASE_NAME="${SNOWFLAKE_DATABASE}"
+        SCHEMA_NAME="${SNOWFLAKE_SCHEMA}" 
+        WAREHOUSE_NAME="${SNOWFLAKE_WAREHOUSE}"
+        ROLE_NAME="${SNOWFLAKE_ROLE:-ACCOUNTADMIN}"
+        
+        # Load additional values from config file if available
+        if [ -f "$CONFIG_FILE" ]; then
+            COMPUTE_POOL_NAME=$(yq '.snowflake.compute_pool.name // "HOL_COMPUTE_POOL_HIGHMEM"' "$CONFIG_FILE")
+            STAGE_NAME_REVIEW=$(yq '.data.stages.review_stage.name // "REVIEW_STAGE"' "$CONFIG_FILE")
+            STAGE_NAME_REVIEWS=$(yq '.data.stages.reviews_text_stage.name // "REVIEWS_TEXT_STAGE"' "$CONFIG_FILE")
+            NETWORK_RULE_NAME=$(yq '.snowflake.network_rule.name // "INTERNET_ACCESS_RULE"' "$CONFIG_FILE")
+            INTEGRATION_NAME=$(yq '.snowflake.external_access_integration.name // "ALLOW_ALL_ACCESS_INTEGRATION"' "$CONFIG_FILE")
+            WAREHOUSE_SIZE=$(yq '.snowflake.warehouse.size // "LARGE"' "$CONFIG_FILE")
+            MAX_NODES=$(yq '.snowflake.compute_pool.max_nodes // "2"' "$CONFIG_FILE")
+            
+            # Get additional config for comprehensive setup
+            COMPUTE_POOL_FAMILY=$(yq '.snowflake.compute_pool.family // "HIGHMEM_X64_M"' "$CONFIG_FILE")
+            MIN_NODES=$(yq '.snowflake.compute_pool.min_nodes // "1"' "$CONFIG_FILE")
+            AUTO_SUSPEND=$(yq '.snowflake.compute_pool.auto_suspend // "3600"' "$CONFIG_FILE")
+            REVIEW_STAGE_URL=$(yq '.data.stages.review_stage.url // "s3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/csv/"' "$CONFIG_FILE")
+            REVIEWS_STAGE_URL=$(yq '.data.stages.reviews_text_stage.url // "s3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/txt/"' "$CONFIG_FILE")
+        else
+            # Fallback defaults when no config file
+            COMPUTE_POOL_NAME="HOL_COMPUTE_POOL_HIGHMEM"
+            STAGE_NAME_REVIEW="REVIEW_STAGE"
+            STAGE_NAME_REVIEWS="REVIEWS_TEXT_STAGE"
+            NETWORK_RULE_NAME="INTERNET_ACCESS_RULE"
+            INTEGRATION_NAME="ALLOW_ALL_ACCESS_INTEGRATION"
+            WAREHOUSE_SIZE="LARGE"
+            MAX_NODES="2"
+            COMPUTE_POOL_FAMILY="HIGHMEM_X64_M"
+            MIN_NODES="1"
+            AUTO_SUSPEND="3600"
+            REVIEW_STAGE_URL="s3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/csv/"
+            REVIEWS_STAGE_URL="s3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/txt/"
+        fi
+        
+        log "GitHub Actions Mode - Environment: $ENV"
+        log "  Database: $DATABASE_NAME"
+        log "  Schema: $SCHEMA_NAME"
+        log "  Warehouse: $WAREHOUSE_NAME (Size: $WAREHOUSE_SIZE)"
+        log "  Config Source: Environment Variables + $CONFIG_FILE defaults"
+        
+    elif [ -f "$CONFIG_FILE" ]; then
+        log "Using comprehensive configuration from $CONFIG_FILE"
+        
+        # Core Snowflake resources
+        WAREHOUSE_NAME=$(yq '.snowflake.warehouse.name' "$CONFIG_FILE")
+        DATABASE_NAME=$(yq '.snowflake.database.name' "$CONFIG_FILE")
+        SCHEMA_NAME=$(yq '.snowflake.schema.name' "$CONFIG_FILE")
+        ROLE_NAME=$(yq '.snowflake.role.name' "$CONFIG_FILE")
+        WAREHOUSE_SIZE=$(yq '.snowflake.warehouse.size' "$CONFIG_FILE")
+        
+        # Compute and networking
+        COMPUTE_POOL_NAME=$(yq '.snowflake.compute_pool.name' "$CONFIG_FILE")
+        COMPUTE_POOL_FAMILY=$(yq '.snowflake.compute_pool.family' "$CONFIG_FILE")
+        MIN_NODES=$(yq '.snowflake.compute_pool.min_nodes' "$CONFIG_FILE")
+        MAX_NODES=$(yq '.snowflake.compute_pool.max_nodes' "$CONFIG_FILE")
+        AUTO_SUSPEND=$(yq '.snowflake.compute_pool.auto_suspend' "$CONFIG_FILE")
+        NETWORK_RULE_NAME=$(yq '.snowflake.network_rule.name' "$CONFIG_FILE")
+        INTEGRATION_NAME=$(yq '.snowflake.external_access_integration.name' "$CONFIG_FILE")
+        
+        # Data stages
+        STAGE_NAME_REVIEW=$(yq '.data.stages.review_stage.name' "$CONFIG_FILE")
+        STAGE_NAME_REVIEWS=$(yq '.data.stages.reviews_text_stage.name' "$CONFIG_FILE")
+        REVIEW_STAGE_URL=$(yq '.data.stages.review_stage.url' "$CONFIG_FILE")
+        REVIEWS_STAGE_URL=$(yq '.data.stages.reviews_text_stage.url' "$CONFIG_FILE")
+        
+        # File formats
+        CSV_FORMAT_NAME=$(yq '.data.file_formats.csv_format.name' "$CONFIG_FILE")
+        
+        log "YAML Config Mode - Environment: $ENV"
+        log "  Config File: $CONFIG_FILE"
+        log "  Database: $DATABASE_NAME"
+        log "  Schema: $SCHEMA_NAME"
+        log "  Warehouse: $WAREHOUSE_NAME (Size: $WAREHOUSE_SIZE)"
+        log "  Compute Pool: $COMPUTE_POOL_NAME ($COMPUTE_POOL_FAMILY, $MIN_NODES-$MAX_NODES nodes)"
+        
+    else
+        error "Neither environment variables nor configuration file $CONFIG_FILE found. Please provide SNOWFLAKE_DATABASE, SNOWFLAKE_SCHEMA, SNOWFLAKE_WAREHOUSE environment variables or create $CONFIG_FILE"
+    fi
+    
+    # Set defaults for values that might be missing
+    CSV_FORMAT_NAME="${CSV_FORMAT_NAME:-HOL_CSV_FORMAT}"
+    
+    log "Configuration loaded successfully (environment: $ENV)"
 }
 
 # Colors for output
@@ -151,13 +223,10 @@ create_role_permissions() {
 
 # Create compute pool using CLI
 create_compute_pool() {
-    local min_nodes=$(yq '.snowflake.compute_pool.min_nodes' "$CONFIG_FILE")
-    local family=$(yq '.snowflake.compute_pool.family' "$CONFIG_FILE")
-    
-    log "Creating compute pool: $COMPUTE_POOL_NAME (family: $family, nodes: $min_nodes-$MAX_NODES)"
+    log "Creating compute pool: $COMPUTE_POOL_NAME (family: $COMPUTE_POOL_FAMILY, nodes: $MIN_NODES-$MAX_NODES)"
     snow spcs compute-pool create $COMPUTE_POOL_NAME \
-        --family "$family" \
-        --min-nodes="$min_nodes" \
+        --family "$COMPUTE_POOL_FAMILY" \
+        --min-nodes="$MIN_NODES" \
         --max-nodes="$MAX_NODES" \
         --if-not-exists || warn "Failed to create compute pool"
     
@@ -185,20 +254,20 @@ create_stages() {
     
     log "Creating stage: $STAGE_NAME_REVIEW"
     snow sql --query "CREATE STAGE IF NOT EXISTS $DATABASE_NAME.$SCHEMA_NAME.$STAGE_NAME_REVIEW
-        URL = 's3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/csv/'
+        URL = '$REVIEW_STAGE_URL'
         DIRECTORY = (ENABLE = TRUE)
         FILE_FORMAT = (TYPE = 'CSV' FIELD_OPTIONALLY_ENCLOSED_BY = '\"');" || warn "Failed to create review stage"
     
     log "Creating stage: $STAGE_NAME_REVIEWS"
     snow sql --query "CREATE STAGE IF NOT EXISTS $DATABASE_NAME.$SCHEMA_NAME.$STAGE_NAME_REVIEWS
-        URL = 's3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/txt/'
+        URL = '$REVIEWS_STAGE_URL'
         DIRECTORY = (ENABLE = TRUE);" || warn "Failed to create reviews stage"
 }
 
 # Create file format
 create_file_format() {
-    log "Creating file format: HOL_CSV_FORMAT"
-    snow sql --query "CREATE FILE FORMAT IF NOT EXISTS HOL_CSV_FORMAT
+    log "Creating file format: $CSV_FORMAT_NAME"
+    snow sql --query "CREATE FILE FORMAT IF NOT EXISTS $CSV_FORMAT_NAME
         TYPE = 'CSV'
         FIELD_OPTIONALLY_ENCLOSED_BY = '\"';" || warn "Failed to create file format"
 }
@@ -221,7 +290,7 @@ load_data() {
         t.\$4::FLOAT,
         t.\$5::INT,
         t.\$6::INT
-    FROM @$STAGE_NAME_REVIEW/tabular_table.csv (FILE_FORMAT => HOL_CSV_FORMAT) t;" || warn "Failed to load tabular data"
+    FROM @$STAGE_NAME_REVIEW/tabular_table.csv (FILE_FORMAT => $CSV_FORMAT_NAME) t;" || warn "Failed to load tabular data"
     
     log "Loading reviews data"
     snow sql --query "INSERT INTO $DATABASE_NAME.$SCHEMA_NAME.REVIEWS (
@@ -233,7 +302,7 @@ load_data() {
         t.\$1,
         t.\$2,
         t.\$3
-    FROM @$STAGE_NAME_REVIEW (FILE_FORMAT => HOL_CSV_FORMAT) t
+    FROM @$STAGE_NAME_REVIEW (FILE_FORMAT => $CSV_FORMAT_NAME) t
     WHERE REGEXP_LIKE(METADATA\$FILENAME, '.*review_table__.*\\.csv\$');" || warn "Failed to load reviews data"
 }
 
@@ -280,6 +349,16 @@ main() {
     check_cli
     load_config
     
+    # Show what will be created
+    log "Environment-Aware Resource Creation:"
+    log "  🎯 Environment: $ENV"
+    log "  🏢 Database: $DATABASE_NAME"
+    log "  📂 Schema: $SCHEMA_NAME"
+    log "  ⚡ Warehouse: $WAREHOUSE_NAME (Size: $WAREHOUSE_SIZE)"
+    log "  🖥️  Compute Pool: $COMPUTE_POOL_NAME (Max Nodes: $MAX_NODES)"
+    log "  🌐 Integration: $INTEGRATION_NAME"
+    log ""
+    
     # Switch to ACCOUNTADMIN role for setup
     log "Switching to ACCOUNTADMIN role"
     snow sql --query "USE ROLE ACCOUNTADMIN;" || error "Failed to switch to ACCOUNTADMIN"
@@ -297,18 +376,26 @@ main() {
     
     verify_setup
     
-    log "Setup completed successfully!"
-    log "You can now run the ML pipeline with the following resources:"
-    log "  - Warehouse: $WAREHOUSE_NAME"
-    log "  - Database: $DATABASE_NAME"
-    log "  - Schema: $SCHEMA_NAME"
-    log "  - Role: $ROLE_NAME"
-    log "  - Compute Pool: $COMPUTE_POOL_NAME"
+    log "Setup completed successfully for environment: $ENV!"
     log ""
-    log "Next steps:"
-    log "  1. Run the Jupyter notebook for ML processing"
-    log "  2. Launch the Streamlit app for visualization"
-    log "  3. Consider setting up SPCS services for production deployment"
+    log "🎯 Environment-Specific Resources Created:"
+    log "  📊 Environment: $ENV"
+    log "  🏢 Database: $DATABASE_NAME"
+    log "  📂 Schema: $DATABASE_NAME.$SCHEMA_NAME"
+    log "  ⚡ Warehouse: $WAREHOUSE_NAME (Size: $WAREHOUSE_SIZE)"
+    log "  🔐 Role: $ROLE_NAME"
+    log "  🖥️  Compute Pool: $COMPUTE_POOL_NAME (Max Nodes: $MAX_NODES)"
+    log "  🌐 External Access: $INTEGRATION_NAME"
+    log ""
+    log "🚀 Next Steps:"
+    log "  1. Deploy notebooks via GitHub Actions (they will connect to these resources)"
+    log "  2. Run the ML pipeline in this isolated $ENV environment"
+    log "  3. If this is dev, changes won't affect staging/production"
+    log ""
+    log "📋 For GitHub Actions, ensure these environment variables match:"
+    log "  SNOWFLAKE_DATABASE=$DATABASE_NAME"
+    log "  SNOWFLAKE_SCHEMA=$SCHEMA_NAME"
+    log "  SNOWFLAKE_WAREHOUSE=$WAREHOUSE_NAME"
 }
 
 # Cleanup function (optional)
