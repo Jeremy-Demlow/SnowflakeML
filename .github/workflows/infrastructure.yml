@@ -66,10 +66,21 @@ jobs:
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Test Connection
+      - name: Test Basic Connectivity
         run: |
-          snow connection test
-          echo "✅ Snowflake connection verified"
+          echo "🔍 Testing basic Snowflake connectivity (without database)..."
+          
+          # Test basic connection without specifying database
+          snow sql -q "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_ACCOUNT()" || {
+            echo "❌ Basic Snowflake connection failed"
+            echo "Please check your credentials and network connectivity"
+            exit 1
+          }
+          
+          echo "✅ Basic Snowflake connectivity verified"
+          echo "  User: $(snow sql -q "SELECT CURRENT_USER()" --format json | jq -r '.[0]["CURRENT_USER()"]')"
+          echo "  Role: $(snow sql -q "SELECT CURRENT_ROLE()" --format json | jq -r '.[0]["CURRENT_ROLE()"]')"
+          echo "  Account: $(snow sql -q "SELECT CURRENT_ACCOUNT()" --format json | jq -r '.[0]["CURRENT_ACCOUNT()"]')"
 
       - name: Setup Infrastructure
         id: setup
@@ -106,4 +117,29 @@ jobs:
         run: |
           echo "🔍 Verifying infrastructure..."
           ./cli-setup.sh verify
-          echo "✅ Infrastructure verification completed" 
+          echo "✅ Infrastructure verification completed"
+
+      - name: Test Full Connection
+        run: |
+          echo "🔍 Testing full connection to created resources..."
+          
+          # Test connection to the specific database and schema that should now exist
+          snow sql -q "USE DATABASE $SNOWFLAKE_DATABASE;" || {
+            echo "❌ Cannot connect to database $SNOWFLAKE_DATABASE"
+            exit 1
+          }
+          
+          snow sql -q "USE SCHEMA $SNOWFLAKE_DATABASE.$SNOWFLAKE_SCHEMA;" || {
+            echo "❌ Cannot connect to schema $SNOWFLAKE_SCHEMA"
+            exit 1
+          }
+          
+          snow sql -q "USE WAREHOUSE $SNOWFLAKE_WAREHOUSE;" || {
+            echo "❌ Cannot connect to warehouse $SNOWFLAKE_WAREHOUSE"
+            exit 1
+          }
+          
+          echo "✅ Full connection test successful"
+          echo "  Database: $SNOWFLAKE_DATABASE"
+          echo "  Schema: $SNOWFLAKE_SCHEMA"  
+          echo "  Warehouse: $SNOWFLAKE_WAREHOUSE" 

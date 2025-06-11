@@ -71,21 +71,46 @@ jobs:
         env:
           ENV: ${{ inputs.environment || 'development' }}
         run: |
-          echo "🔍 Checking if infrastructure exists..."
+          echo "🔍 Checking infrastructure for $ENV environment..."
           
-          # Test basic connectivity and resources
-          if snow sql -q "USE DATABASE $SNOWFLAKE_DATABASE" && \
-             snow sql -q "USE SCHEMA $SNOWFLAKE_DATABASE.$SNOWFLAKE_SCHEMA" && \
-             snow sql -q "USE WAREHOUSE $SNOWFLAKE_WAREHOUSE"; then
-            echo "✅ Infrastructure exists"
-            echo "ready=true" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️  Infrastructure missing, setting up..."
+          # First test basic connectivity
+          echo "Testing basic connectivity..."
+          snow sql -q "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_ACCOUNT()" || {
+            echo "❌ Basic Snowflake connection failed"
+            exit 1
+          }
+          
+          # Then check if infrastructure exists
+          echo "Checking if infrastructure resources exist..."
+          
+          # Check database
+          if ! snow sql -q "USE DATABASE $SNOWFLAKE_DATABASE;" 2>/dev/null; then
+            echo "⚠️  Database $SNOWFLAKE_DATABASE missing"
+            NEEDS_SETUP=true
+          fi
+          
+          # Check schema
+          if ! snow sql -q "USE SCHEMA $SNOWFLAKE_DATABASE.$SNOWFLAKE_SCHEMA;" 2>/dev/null; then
+            echo "⚠️  Schema $SNOWFLAKE_SCHEMA missing"
+            NEEDS_SETUP=true
+          fi
+          
+          # Check warehouse
+          if ! snow sql -q "USE WAREHOUSE $SNOWFLAKE_WAREHOUSE;" 2>/dev/null; then
+            echo "⚠️  Warehouse $SNOWFLAKE_WAREHOUSE missing"
+            NEEDS_SETUP=true
+          fi
+          
+          if [ "$NEEDS_SETUP" == "true" ]; then
+            echo "🚀 Setting up missing infrastructure..."
             chmod +x ./cli-setup.sh
             ./cli-setup.sh
-            echo "ready=true" >> $GITHUB_OUTPUT
             echo "✅ Infrastructure setup completed"
+          else
+            echo "✅ Infrastructure already exists"
           fi
+          
+          echo "ready=true" >> $GITHUB_OUTPUT
 
   # Deploy notebooks
   deploy-notebooks:
