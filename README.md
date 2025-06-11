@@ -1,3 +1,159 @@
+# Snowflake ML Pipeline - Team Deployment
+
+A streamlined but powerful ML deployment pipeline for teams using Snowflake, designed for **quick iterations** and **reliable deployments**.
+
+## 🚀 **Quick Start**
+
+### For New Team Members
+```bash
+# 1. Clone and setup
+git clone <repo>
+cd SnowflakeML
+
+# 2. Setup GitHub secrets (one-time)
+./scripts/setup-github-secrets.sh
+
+# 3. Setup your dev environment
+./cli-setup.sh
+```
+
+### For Daily Development
+```bash
+# Test locally before pushing
+./scripts/test-notebook-deployment.sh
+
+# Push to deploy
+git add sf_nbs/my_notebook.ipynb
+git commit -m "Updated ML model"
+git push  # Auto-deploys to dev environment
+```
+
+## 🏗️ **Architecture**
+
+### **Two Simple Workflows**
+1. **`infrastructure.yml`** - Sets up Snowflake resources (triggered by config changes)
+2. **`deploy.yml`** - Deploys notebooks (triggered by `sf_nbs/` changes)
+
+### **Environment Separation**
+- **Development**: Uses `config.yaml` 
+- **Production**: Uses `config-production.yaml`
+- **Staging**: Uses `config-staging.yaml` (when created)
+
+### **Configuration-Driven**
+```yaml
+# config.yaml - Single source of truth
+snowflake:
+  warehouse: {name: "HOL_WAREHOUSE", size: "MEDIUM"}
+  compute_pool: {name: "HOL_COMPUTE_POOL_HIGHMEM", max_nodes: 3}
+  database: {name: "HOL_DB"}
+  
+data:
+  stages:
+    review_stage: {url: "s3://your-data/csv/"}
+```
+
+## 📁 **Project Structure**
+
+```
+├── sf_nbs/                    # Put your notebooks here
+│   └── ml_pipeline.ipynb      # Auto-deploys to Snowflake
+├── config.yaml               # Development configuration  
+├── config-production.yaml    # Production configuration
+├── cli-setup.sh              # Infrastructure setup script
+├── .github/workflows/
+│   ├── infrastructure.yml    # Infrastructure deployment
+│   └── deploy.yml            # Notebook deployment
+└── scripts/
+    ├── setup-github-secrets.sh    # GitHub setup helper
+    └── test-notebook-deployment.sh # Local testing
+```
+
+## 🔄 **Development Workflow**
+
+### **Local Development** (Quick Iterations)
+```bash
+# 1. Make changes to notebook
+vim sf_nbs/ml_pipeline.ipynb
+
+# 2. Test locally (optional but recommended)
+./scripts/test-notebook-deployment.sh
+
+# 3. Push when ready
+git add . && git commit -m "Updated model" && git push
+```
+
+### **Environment Promotion**
+```bash
+# Deploy to staging
+gh workflow run deploy.yml -f environment=staging
+
+# Deploy to production  
+gh workflow run deploy.yml -f environment=production
+```
+
+## 🛠️ **Key Features**
+
+### ✅ **Team-Friendly**
+- **Easy onboarding**: New team members run one script
+- **Environment isolation**: Dev changes don't break production
+- **Configuration-driven**: No hardcoded values in workflows
+- **Local testing**: Test before deploying
+
+### ✅ **Flexible & Powerful**
+- **Auto-infrastructure**: Missing resources are created automatically
+- **Environment-specific configs**: Different settings per environment
+- **Git integration**: Notebooks deployed directly from repository
+- **Comprehensive setup**: All Snowflake resources configured
+
+### ✅ **Developer Experience**
+- **Quick iterations**: Local testing for fast feedback
+- **Simple deployment**: Push to deploy
+- **Clear feedback**: Comprehensive logging and verification
+- **Helper scripts**: Easy GitHub setup and testing
+
+## 📋 **Configuration Management**
+
+### **Environment Variables** (GitHub Actions)
+```yaml
+# Set once in GitHub repository
+SNOWFLAKE_ACCOUNT: "your-account"
+SNOWFLAKE_USER: "your-user"
+SNOWFLAKE_PASSWORD: "your-password"  # Secret
+SNOWFLAKE_DATABASE: "HOL_DB_DEV"     # Environment-specific
+```
+
+### **YAML Configuration** (Detailed Settings)
+- Infrastructure sizing (warehouse, compute pool)
+- Data sources and file formats  
+- ML model configurations
+- Network and security settings
+
+## 🎯 **Perfect For Teams That Want**
+
+- **Fast notebook deployment** without complex DevOps
+- **Environment separation** to prevent accidents
+- **Configuration management** without overwhelming complexity
+- **Local testing** for quick iterations
+- **Team onboarding** that takes minutes, not hours
+
+## 🚀 **Getting Started**
+
+1. **Fork this repository**
+2. **Run setup script**: `./scripts/setup-github-secrets.sh`
+3. **Add your notebook**: Put `.ipynb` files in `sf_nbs/`
+4. **Push and deploy**: Git push automatically deploys
+
+That's it! Your team has a production-ready ML deployment pipeline.
+
+---
+
+## 📖 **Need Help?**
+
+- **Local testing**: Use `./scripts/test-notebook-deployment.sh`
+- **Environment setup**: Run `./cli-setup.sh verify`
+- **Configuration**: Check `config.yaml` and environment-specific configs
+- **Workflows**: See `.github/workflows/` for deployment logic
+
 # SnowflakeML
 
 

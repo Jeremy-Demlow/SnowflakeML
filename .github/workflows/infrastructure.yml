@@ -1,0 +1,109 @@
+name: Infrastructure Setup
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+        - development
+        - staging
+        - production
+      force_recreate:
+        description: 'Force recreate resources'
+        required: false
+        default: false
+        type: boolean
+  push:
+    paths:
+      - 'config*.yaml'
+      - 'cli-setup.sh'
+    branches: [main]
+
+env:
+  # Snowflake CLI connection environment variables
+  SNOWFLAKE_CONNECTIONS_ML_PIPELINE_ACCOUNT: ${{ vars.SNOWFLAKE_ACCOUNT }}
+  SNOWFLAKE_CONNECTIONS_ML_PIPELINE_USER: ${{ vars.SNOWFLAKE_USER }}
+  SNOWFLAKE_CONNECTIONS_ML_PIPELINE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+  SNOWFLAKE_CONNECTIONS_ML_PIPELINE_ROLE: ${{ vars.SNOWFLAKE_ROLE }}
+  SNOWFLAKE_CONNECTIONS_ML_PIPELINE_WAREHOUSE: ${{ vars.SNOWFLAKE_WAREHOUSE }}
+  SNOWFLAKE_CONNECTIONS_ML_PIPELINE_DATABASE: ${{ vars.SNOWFLAKE_DATABASE }}
+  SNOWFLAKE_CONNECTIONS_ML_PIPELINE_SCHEMA: ${{ vars.SNOWFLAKE_SCHEMA }}
+  # Legacy environment variables for SQL commands
+  SNOWFLAKE_ACCOUNT: ${{ vars.SNOWFLAKE_ACCOUNT }}
+  SNOWFLAKE_USER: ${{ vars.SNOWFLAKE_USER }}
+  SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+  SNOWFLAKE_ROLE: ${{ vars.SNOWFLAKE_ROLE }}
+  SNOWFLAKE_WAREHOUSE: ${{ vars.SNOWFLAKE_WAREHOUSE }}
+  SNOWFLAKE_DATABASE: ${{ vars.SNOWFLAKE_DATABASE }}
+  SNOWFLAKE_SCHEMA: ${{ vars.SNOWFLAKE_SCHEMA }}
+
+jobs:
+  setup-infrastructure:
+    name: Setup Infrastructure
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'development' }}
+    
+    outputs:
+      infrastructure_ready: ${{ steps.setup.outputs.ready }}
+      environment: ${{ steps.setup.outputs.environment }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Snowflake CLI
+        uses: snowflakedb/snowflake-cli-action@v1.5
+        with:
+          cli-version: "latest"
+          default-config-file-path: "./config.toml"
+
+      - name: Install yq for YAML parsing
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Test Connection
+        run: |
+          snow connection test
+          echo "✅ Snowflake connection verified"
+
+      - name: Setup Infrastructure
+        id: setup
+        env:
+          ENV: ${{ inputs.environment || 'development' }}
+        run: |
+          echo "🚀 Setting up infrastructure for: $ENV"
+          
+          # Show configuration
+          echo "📋 Configuration:"
+          ls -la config*.yaml || echo "  No config files found"
+          
+          if [ "$ENV" != "development" ] && [ -f "config-${ENV}.yaml" ]; then
+            echo "  Using: config-${ENV}.yaml"
+          else
+            echo "  Using: config.yaml"
+          fi
+          
+          # Run setup
+          chmod +x ./cli-setup.sh
+          
+          if [ "${{ inputs.force_recreate }}" == "true" ]; then
+            echo "⚠️  Force recreate enabled"
+            export FORCE_RECREATE=true
+          fi
+          
+          ./cli-setup.sh
+          
+          echo "ready=true" >> $GITHUB_OUTPUT
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "✅ Infrastructure setup completed"
+
+      - name: Verify Setup
+        run: |
+          echo "🔍 Verifying infrastructure..."
+          ./cli-setup.sh verify
+          echo "✅ Infrastructure verification completed" 

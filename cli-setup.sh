@@ -25,104 +25,107 @@ load_config() {
     # Determine environment
     ENV="${ENV:-development}"
     
-    # Auto-select environment-specific config file if not explicitly set
-    if [ "$CONFIG_FILE" = "config.yaml" ] && [ "$ENV" != "development" ]; then
-        ENV_CONFIG_FILE="config-${ENV}.yaml"
-        if [ -f "$ENV_CONFIG_FILE" ]; then
-            CONFIG_FILE="$ENV_CONFIG_FILE"
-            log "Auto-selected environment config: $CONFIG_FILE"
-        fi
+    # Auto-select environment-specific config file
+    if [ "$CONFIG_FILE" = "config.yaml" ] && [ "$ENV" != "development" ] && [ -f "config-${ENV}.yaml" ]; then
+        CONFIG_FILE="config-${ENV}.yaml"
+        log "Auto-selected environment config: $CONFIG_FILE"
     fi
     
-    # Check for GitHub Actions environment variables first (takes precedence)
+    # GitHub Actions mode (environment variables take precedence)
     if [ -n "${SNOWFLAKE_DATABASE:-}" ] && [ -n "${SNOWFLAKE_SCHEMA:-}" ] && [ -n "${SNOWFLAKE_WAREHOUSE:-}" ]; then
-        log "Using environment variables from GitHub Actions (config file: $CONFIG_FILE for defaults)"
+        log "GitHub Actions mode: Environment variables + $CONFIG_FILE defaults"
+        
+        # Core values from environment
         DATABASE_NAME="${SNOWFLAKE_DATABASE}"
         SCHEMA_NAME="${SNOWFLAKE_SCHEMA}" 
         WAREHOUSE_NAME="${SNOWFLAKE_WAREHOUSE}"
         ROLE_NAME="${SNOWFLAKE_ROLE:-ACCOUNTADMIN}"
         
-        # Load additional values from config file if available
+        # Load everything else from config file with defaults
         if [ -f "$CONFIG_FILE" ]; then
-            COMPUTE_POOL_NAME=$(yq '.snowflake.compute_pool.name // "HOL_COMPUTE_POOL_HIGHMEM"' "$CONFIG_FILE")
-            STAGE_NAME_REVIEW=$(yq '.data.stages.review_stage.name // "REVIEW_STAGE"' "$CONFIG_FILE")
-            STAGE_NAME_REVIEWS=$(yq '.data.stages.reviews_text_stage.name // "REVIEWS_TEXT_STAGE"' "$CONFIG_FILE")
-            NETWORK_RULE_NAME=$(yq '.snowflake.network_rule.name // "INTERNET_ACCESS_RULE"' "$CONFIG_FILE")
-            INTEGRATION_NAME=$(yq '.snowflake.external_access_integration.name // "ALLOW_ALL_ACCESS_INTEGRATION"' "$CONFIG_FILE")
-            WAREHOUSE_SIZE=$(yq '.snowflake.warehouse.size // "LARGE"' "$CONFIG_FILE")
-            MAX_NODES=$(yq '.snowflake.compute_pool.max_nodes // "2"' "$CONFIG_FILE")
-            
-            # Get additional config for comprehensive setup
-            COMPUTE_POOL_FAMILY=$(yq '.snowflake.compute_pool.family // "HIGHMEM_X64_M"' "$CONFIG_FILE")
-            MIN_NODES=$(yq '.snowflake.compute_pool.min_nodes // "1"' "$CONFIG_FILE")
-            AUTO_SUSPEND=$(yq '.snowflake.compute_pool.auto_suspend // "3600"' "$CONFIG_FILE")
-            REVIEW_STAGE_URL=$(yq '.data.stages.review_stage.url // "s3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/csv/"' "$CONFIG_FILE")
-            REVIEWS_STAGE_URL=$(yq '.data.stages.reviews_text_stage.url // "s3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/txt/"' "$CONFIG_FILE")
+            load_from_config_with_defaults
         else
-            # Fallback defaults when no config file
-            COMPUTE_POOL_NAME="HOL_COMPUTE_POOL_HIGHMEM"
-            STAGE_NAME_REVIEW="REVIEW_STAGE"
-            STAGE_NAME_REVIEWS="REVIEWS_TEXT_STAGE"
-            NETWORK_RULE_NAME="INTERNET_ACCESS_RULE"
-            INTEGRATION_NAME="ALLOW_ALL_ACCESS_INTEGRATION"
-            WAREHOUSE_SIZE="LARGE"
-            MAX_NODES="2"
-            COMPUTE_POOL_FAMILY="HIGHMEM_X64_M"
-            MIN_NODES="1"
-            AUTO_SUSPEND="3600"
-            REVIEW_STAGE_URL="s3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/csv/"
-            REVIEWS_STAGE_URL="s3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/txt/"
+            set_fallback_defaults
         fi
         
-        log "GitHub Actions Mode - Environment: $ENV"
-        log "  Database: $DATABASE_NAME"
-        log "  Schema: $SCHEMA_NAME"
-        log "  Warehouse: $WAREHOUSE_NAME (Size: $WAREHOUSE_SIZE)"
-        log "  Config Source: Environment Variables + $CONFIG_FILE defaults"
+        log "  Database: $DATABASE_NAME | Schema: $SCHEMA_NAME | Warehouse: $WAREHOUSE_NAME"
         
+    # YAML config mode (pure config file)
     elif [ -f "$CONFIG_FILE" ]; then
-        log "Using comprehensive configuration from $CONFIG_FILE"
-        
-        # Core Snowflake resources
-        WAREHOUSE_NAME=$(yq '.snowflake.warehouse.name' "$CONFIG_FILE")
-        DATABASE_NAME=$(yq '.snowflake.database.name' "$CONFIG_FILE")
-        SCHEMA_NAME=$(yq '.snowflake.schema.name' "$CONFIG_FILE")
-        ROLE_NAME=$(yq '.snowflake.role.name' "$CONFIG_FILE")
-        WAREHOUSE_SIZE=$(yq '.snowflake.warehouse.size' "$CONFIG_FILE")
-        
-        # Compute and networking
-        COMPUTE_POOL_NAME=$(yq '.snowflake.compute_pool.name' "$CONFIG_FILE")
-        COMPUTE_POOL_FAMILY=$(yq '.snowflake.compute_pool.family' "$CONFIG_FILE")
-        MIN_NODES=$(yq '.snowflake.compute_pool.min_nodes' "$CONFIG_FILE")
-        MAX_NODES=$(yq '.snowflake.compute_pool.max_nodes' "$CONFIG_FILE")
-        AUTO_SUSPEND=$(yq '.snowflake.compute_pool.auto_suspend' "$CONFIG_FILE")
-        NETWORK_RULE_NAME=$(yq '.snowflake.network_rule.name' "$CONFIG_FILE")
-        INTEGRATION_NAME=$(yq '.snowflake.external_access_integration.name' "$CONFIG_FILE")
-        
-        # Data stages
-        STAGE_NAME_REVIEW=$(yq '.data.stages.review_stage.name' "$CONFIG_FILE")
-        STAGE_NAME_REVIEWS=$(yq '.data.stages.reviews_text_stage.name' "$CONFIG_FILE")
-        REVIEW_STAGE_URL=$(yq '.data.stages.review_stage.url' "$CONFIG_FILE")
-        REVIEWS_STAGE_URL=$(yq '.data.stages.reviews_text_stage.url' "$CONFIG_FILE")
-        
-        # File formats
-        CSV_FORMAT_NAME=$(yq '.data.file_formats.csv_format.name' "$CONFIG_FILE")
-        
-        log "YAML Config Mode - Environment: $ENV"
-        log "  Config File: $CONFIG_FILE"
-        log "  Database: $DATABASE_NAME"
-        log "  Schema: $SCHEMA_NAME"
-        log "  Warehouse: $WAREHOUSE_NAME (Size: $WAREHOUSE_SIZE)"
+        log "YAML config mode: Using $CONFIG_FILE"
+        load_from_config_file
+        log "  Database: $DATABASE_NAME | Warehouse: $WAREHOUSE_NAME ($WAREHOUSE_SIZE)"
         log "  Compute Pool: $COMPUTE_POOL_NAME ($COMPUTE_POOL_FAMILY, $MIN_NODES-$MAX_NODES nodes)"
         
     else
-        error "Neither environment variables nor configuration file $CONFIG_FILE found. Please provide SNOWFLAKE_DATABASE, SNOWFLAKE_SCHEMA, SNOWFLAKE_WAREHOUSE environment variables or create $CONFIG_FILE"
+        error "No configuration found. Provide environment variables or create $CONFIG_FILE"
     fi
     
-    # Set defaults for values that might be missing
-    CSV_FORMAT_NAME="${CSV_FORMAT_NAME:-HOL_CSV_FORMAT}"
+    log "Configuration loaded for environment: $ENV"
+}
+
+# Helper function to load from config with environment variable defaults
+load_from_config_with_defaults() {
+    COMPUTE_POOL_NAME=$(yq '.snowflake.compute_pool.name // "HOL_COMPUTE_POOL_HIGHMEM"' "$CONFIG_FILE")
+    WAREHOUSE_SIZE=$(yq '.snowflake.warehouse.size // "LARGE"' "$CONFIG_FILE")
+    MAX_NODES=$(yq '.snowflake.compute_pool.max_nodes // "2"' "$CONFIG_FILE")
+    COMPUTE_POOL_FAMILY=$(yq '.snowflake.compute_pool.family // "HIGHMEM_X64_M"' "$CONFIG_FILE")
+    MIN_NODES=$(yq '.snowflake.compute_pool.min_nodes // "1"' "$CONFIG_FILE")
+    AUTO_SUSPEND=$(yq '.snowflake.compute_pool.auto_suspend // "3600"' "$CONFIG_FILE")
     
-    log "Configuration loaded successfully (environment: $ENV)"
+    # Network and integrations
+    NETWORK_RULE_NAME=$(yq '.snowflake.network_rule.name // "INTERNET_ACCESS_RULE"' "$CONFIG_FILE")
+    INTEGRATION_NAME=$(yq '.snowflake.external_access_integration.name // "ALLOW_ALL_ACCESS_INTEGRATION"' "$CONFIG_FILE")
+    
+    # Data stages and formats
+    STAGE_NAME_REVIEW=$(yq '.data.stages.review_stage.name // "REVIEW_STAGE"' "$CONFIG_FILE")
+    STAGE_NAME_REVIEWS=$(yq '.data.stages.reviews_text_stage.name // "REVIEWS_TEXT_STAGE"' "$CONFIG_FILE")
+    REVIEW_STAGE_URL=$(yq '.data.stages.review_stage.url // "s3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/csv/"' "$CONFIG_FILE")
+    REVIEWS_STAGE_URL=$(yq '.data.stages.reviews_text_stage.url // "s3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/txt/"' "$CONFIG_FILE")
+    CSV_FORMAT_NAME=$(yq '.data.file_formats.csv_format.name // "HOL_CSV_FORMAT"' "$CONFIG_FILE")
+}
+
+# Helper function to load everything from config file
+load_from_config_file() {
+    # Core Snowflake resources
+    WAREHOUSE_NAME=$(yq '.snowflake.warehouse.name' "$CONFIG_FILE")
+    DATABASE_NAME=$(yq '.snowflake.database.name' "$CONFIG_FILE")
+    SCHEMA_NAME=$(yq '.snowflake.schema.name' "$CONFIG_FILE")
+    ROLE_NAME=$(yq '.snowflake.role.name' "$CONFIG_FILE")
+    WAREHOUSE_SIZE=$(yq '.snowflake.warehouse.size' "$CONFIG_FILE")
+    
+    # Compute and networking
+    COMPUTE_POOL_NAME=$(yq '.snowflake.compute_pool.name' "$CONFIG_FILE")
+    COMPUTE_POOL_FAMILY=$(yq '.snowflake.compute_pool.family' "$CONFIG_FILE")
+    MIN_NODES=$(yq '.snowflake.compute_pool.min_nodes' "$CONFIG_FILE")
+    MAX_NODES=$(yq '.snowflake.compute_pool.max_nodes' "$CONFIG_FILE")
+    AUTO_SUSPEND=$(yq '.snowflake.compute_pool.auto_suspend' "$CONFIG_FILE")
+    NETWORK_RULE_NAME=$(yq '.snowflake.network_rule.name' "$CONFIG_FILE")
+    INTEGRATION_NAME=$(yq '.snowflake.external_access_integration.name' "$CONFIG_FILE")
+    
+    # Data stages
+    STAGE_NAME_REVIEW=$(yq '.data.stages.review_stage.name' "$CONFIG_FILE")
+    STAGE_NAME_REVIEWS=$(yq '.data.stages.reviews_text_stage.name' "$CONFIG_FILE")
+    REVIEW_STAGE_URL=$(yq '.data.stages.review_stage.url' "$CONFIG_FILE")
+    REVIEWS_STAGE_URL=$(yq '.data.stages.reviews_text_stage.url' "$CONFIG_FILE")
+    CSV_FORMAT_NAME=$(yq '.data.file_formats.csv_format.name' "$CONFIG_FILE")
+}
+
+# Helper function to set fallback defaults when no config file
+set_fallback_defaults() {
+    COMPUTE_POOL_NAME="HOL_COMPUTE_POOL_HIGHMEM"
+    WAREHOUSE_SIZE="LARGE"
+    MAX_NODES="2"
+    COMPUTE_POOL_FAMILY="HIGHMEM_X64_M"
+    MIN_NODES="1"
+    AUTO_SUSPEND="3600"
+    NETWORK_RULE_NAME="INTERNET_ACCESS_RULE"
+    INTEGRATION_NAME="ALLOW_ALL_ACCESS_INTEGRATION"
+    STAGE_NAME_REVIEW="REVIEW_STAGE"
+    STAGE_NAME_REVIEWS="REVIEWS_TEXT_STAGE"
+    REVIEW_STAGE_URL="s3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/csv/"
+    REVIEWS_STAGE_URL="s3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/txt/"
+    CSV_FORMAT_NAME="HOL_CSV_FORMAT"
 }
 
 # Colors for output
@@ -383,7 +386,7 @@ main() {
     log "  🏢 Database: $DATABASE_NAME"
     log "  📂 Schema: $DATABASE_NAME.$SCHEMA_NAME"
     log "  ⚡ Warehouse: $WAREHOUSE_NAME (Size: $WAREHOUSE_SIZE)"
-    log "  🔐 Role: $ROLE_NAME"
+    log "  �� Role: $ROLE_NAME"
     log "  🖥️  Compute Pool: $COMPUTE_POOL_NAME (Max Nodes: $MAX_NODES)"
     log "  🌐 External Access: $INTEGRATION_NAME"
     log ""
