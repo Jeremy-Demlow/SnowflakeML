@@ -1,0 +1,243 @@
+# Production Configuration for Customer Conversion ML Pipeline
+# This extends the base config with production-specific settings
+
+# Snowflake Resources - Production Scale
+snowflake:
+  # Core Infrastructure - Production sizing
+  warehouse:
+    name: "HOL_WAREHOUSE_PROD"
+    size: "LARGE"
+    type: "STANDARD"
+    resource_constraint: "STANDARD_GEN_2"
+    auto_suspend: 7200  # 2 hours for production
+    auto_resume: true
+  
+  database:
+    name: "HOL_DB_PROD"
+    comment: "Customer conversion ML pipeline database - PRODUCTION"
+  
+  schema:
+    name: "HOL_SCHEMA"
+    comment: "Schema for customer conversion ML data and models - PRODUCTION"
+  
+  # Security & Access - Production
+  role:
+    name: "HOL_ROLE_PROD"
+    comment: "Role for customer conversion ML pipeline operations - PRODUCTION"
+  
+  network_rule:
+    name: "PROD_ACCESS_RULE"
+    mode: "EGRESS"
+    type: "HOST_PORT"
+    value_list: ['api.company.com:443', 'ml-services.company.com:443']  # Restricted access
+  
+  external_access_integration:
+    name: "PROD_ACCESS_INTEGRATION"
+    enabled: true
+  
+  # Compute Resources - Production scale
+  compute_pool:
+    name: "HOL_COMPUTE_POOL_PROD"
+    family: "HIGHMEM_X64_L"  # Larger instances for production
+    min_nodes: 2             # Always have minimum capacity
+    max_nodes: 10            # Scale up significantly
+    auto_suspend: 7200       # 2 hours
+    auto_resume: true
+    comment: "High memory compute pool for production ML workloads"
+
+# Data Configuration - Production
+data:
+  # External Data Sources - Production paths
+  stages:
+    review_stage:
+      name: "REVIEW_STAGE_PROD"
+      url: "s3://company-prod-data/customer-conversion/csv/"
+      directory_enabled: true
+      file_format: "CSV"
+      field_optionally_enclosed_by: '"'
+    
+    reviews_text_stage:
+      name: "REVIEWS_PROD"
+      url: "s3://company-prod-data/customer-conversion/txt/"
+      directory_enabled: true
+  
+  # File Formats
+  file_formats:
+    csv_format:
+      name: "PROD_CSV_FORMAT"
+      type: "CSV"
+      field_optionally_enclosed_by: '"'
+      skip_header: 0
+  
+  # Tables - Production with clustering
+  tables:
+    tabular_data:
+      name: "TABULAR_DATA"
+      clustering_keys: ["PRODUCT_TYPE", "PURCHASE_DECISION"]  # Production optimization
+      comment: "Customer interaction and product data - PRODUCTION"
+    
+    reviews:
+      name: "REVIEWS"
+      clustering_keys: ["UUID"]  # Production optimization
+      comment: "Customer reviews with quality and sentiment analysis - PRODUCTION"
+
+# Machine Learning Configuration - Production
+ml:
+  # Model Configuration - Production tuned
+  models:
+    review_quality_classifier:
+      type: "zero-shot-classification"
+      model_name: "facebook/bart-large-mnli"
+      labels: 
+        - "detailed with specific information and experience"
+        - "basic accurate information"
+        - "generic brief with no details"
+      batch_size: 50  # Larger batches for production
+    
+    purchase_prediction:
+      type: "xgboost"
+      features:
+        - "PRODUCT_TYPE"
+        - "PRODUCT_LAYOUT"
+        - "PAGE_LOAD_TIME"
+        - "PRODUCT_RATING"
+        - "REVIEW_SENTIMENT"
+      target: "PURCHASE_DECISION"
+      test_size: 0.2
+      random_state: 42
+      # Production hyperparameters
+      n_estimators: 500
+      max_depth: 10
+      learning_rate: 0.05
+  
+  # Ray Configuration - Production scale
+  ray:
+    scale_factor: 8  # More nodes for production
+    num_cpus: 100    # More CPU resources
+    execution_options:
+      verbose_progress: true   # More logging in production
+      enable_operator_progress_bars: false
+      enable_progress_bars: false
+
+# SPCS Configuration - Production deployment
+spcs:
+  # Image Repository
+  image_repository:
+    name: "ml_models_repo_prod"
+    database: "HOL_DB_PROD"
+    schema: "HOL_SCHEMA"
+  
+  # Services - Production configuration
+  services:
+    streamlit_app:
+      name: "customer_conversion_app_prod"
+      compute_pool: "HOL_COMPUTE_POOL_PROD"
+      min_instances: 2  # Always have redundancy
+      max_instances: 8  # Scale significantly
+      spec:
+        containers:
+          - name: "streamlit"
+            image: "streamlit_app:prod"
+            ports:
+              - 8501
+            readiness_probe:
+              port: 8501
+              path: "/"
+            resources:
+              requests:
+                memory: 2Gi
+                cpu: 1000m
+              limits:
+                memory: 4Gi
+                cpu: 2000m
+        endpoints:
+          - name: "streamlit"
+            port: 8501
+            public: true
+    
+    ml_service:
+      name: "ml_inference_service_prod"
+      compute_pool: "HOL_COMPUTE_POOL_PROD"
+      min_instances: 3  # High availability
+      max_instances: 15 # Scale for load
+      spec:
+        containers:
+          - name: "ml_api"
+            image: "ml_inference:prod"
+            ports:
+              - 8000
+            readiness_probe:
+              port: 8000
+              path: "/health"
+            resources:
+              requests:
+                memory: 4Gi  # More memory for ML workloads
+                cpu: 2000m
+              limits:
+                memory: 8Gi
+                cpu: 4000m
+        endpoints:
+          - name: "ml_api"
+            port: 8000
+            public: true
+
+# Application Configuration - Production
+app:
+  streamlit:
+    title: "Customer Conversion Analysis - Production"
+    layout: "wide"
+    cache_ttl: 1800  # 30 minutes cache for production
+    
+    # Chart Configuration
+    charts:
+      sentiment_bins: 5
+      sentiment_labels:
+        - "Very Negative"
+        - "Negative"
+        - "Neutral"
+        - "Positive"
+        - "Very Positive"
+
+# Monitoring and Logging - Production
+monitoring:
+  # Task Monitoring - Production schedules
+  tasks:
+    data_refresh:
+      schedule: "USING CRON 0 1 * * * UTC"  # Nightly at 1 AM UTC
+      warehouse: "HOL_WAREHOUSE_PROD"
+      enabled: true
+    
+    model_retraining:
+      schedule: "USING CRON 0 3 * * 0 UTC"  # Weekly on Sunday at 3 AM UTC
+      warehouse: "HOL_WAREHOUSE_PROD"
+      enabled: true  # Enabled for production
+    
+    health_checks:
+      schedule: "USING CRON */15 * * * * UTC"  # Every 15 minutes
+      enabled: true
+  
+  # Logging Configuration - Production
+  logging:
+    level: "WARNING"  # Less verbose for production
+    retention_days: 90  # Longer retention
+    table_name: "PROD_PIPELINE_LOGS"
+    alerts_enabled: true
+
+# Environment Settings - Production specific
+environment:
+  production:
+    warehouse_size: "LARGE"
+    auto_suspend: 7200  # 2 hours
+    max_compute_nodes: 10
+    backup_enabled: true
+    monitoring_enabled: true
+    alerts_enabled: true
+    data_retention_days: 365
+    
+    # Security settings
+    network_policy: "RESTRICTED"
+    ip_whitelist: ["10.0.0.0/8", "172.16.0.0/12"]
+    
+    # Performance settings
+    query_timeout: 1800  # 30 minutes
+    statement_timeout: 900  # 15 minutes 

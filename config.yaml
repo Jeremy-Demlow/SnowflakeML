@@ -1,0 +1,254 @@
+# Customer Conversion ML Pipeline Configuration
+# This file defines all the configuration parameters for the Snowflake ML pipeline
+
+# Snowflake Resources
+snowflake:
+  # Core Infrastructure
+  warehouse:
+    name: "HOL_WAREHOUSE"
+    size: "MEDIUM"
+    type: "STANDARD"
+    resource_constraint: "STANDARD_GEN_2"
+    auto_suspend: 3600  # seconds
+    auto_resume: true
+  
+  database:
+    name: "HOL_DB"
+    comment: "Customer conversion ML pipeline database"
+  
+  schema:
+    name: "HOL_SCHEMA"
+    comment: "Schema for customer conversion ML data and models"
+  
+  # Security & Access
+  role:
+    name: "HOL_ROLE"
+    comment: "Role for customer conversion ML pipeline operations"
+  
+  network_rule:
+    name: "INTERNET_ACCESS_RULE"
+    mode: "EGRESS"
+    type: "HOST_PORT"
+    value_list: ['0.0.0.0:443', '0.0.0.0:80']
+  
+  external_access_integration:
+    name: "ALLOW_ALL_ACCESS_INTEGRATION"
+    enabled: true
+  
+  # Compute Resources
+  compute_pool:
+    name: "HOL_COMPUTE_POOL_HIGHMEM"
+    family: "HIGHMEM_X64_M"
+    min_nodes: 1
+    max_nodes: 3
+    auto_suspend: 3600
+    auto_resume: true
+    comment: "High memory compute pool for ML workloads"
+
+# Data Configuration
+data:
+  # External Data Sources
+  stages:
+    review_stage:
+      name: "REVIEW_STAGE"
+      url: "s3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/csv/"
+      directory_enabled: true
+      file_format: "CSV"
+      field_optionally_enclosed_by: '"'
+    
+    reviews_text_stage:
+      name: "REVIEWS"
+      url: "s3://sfquickstarts/vhol_building_ml_models_to_crack_the_code_of_customer_conversions/txt/"
+      directory_enabled: true
+  
+  # File Formats
+  file_formats:
+    csv_format:
+      name: "HOL_CSV_FORMAT"
+      type: "CSV"
+      field_optionally_enclosed_by: '"'
+      skip_header: 0
+  
+  # Tables
+  tables:
+    tabular_data:
+      name: "TABULAR_DATA"
+      columns:
+        - name: "UUID"
+          type: "STRING"
+          nullable: false
+        - name: "PRODUCT_TYPE"
+          type: "STRING"
+        - name: "PRODUCT_LAYOUT"
+          type: "STRING"
+        - name: "PAGE_LOAD_TIME"
+          type: "FLOAT"
+        - name: "PRODUCT_RATING"
+          type: "INT"
+        - name: "PURCHASE_DECISION"
+          type: "INT"
+      comment: "Customer interaction and product data"
+    
+    reviews:
+      name: "REVIEWS"
+      columns:
+        - name: "UUID"
+          type: "STRING"
+          nullable: false
+        - name: "REVIEW_TEXT"
+          type: "STRING"
+        - name: "REVIEW_QUALITY"
+          type: "STRING"
+        - name: "REVIEW_SENTIMENT"
+          type: "FLOAT"
+      comment: "Customer reviews with quality and sentiment analysis"
+
+# Machine Learning Configuration
+ml:
+  # Model Configuration
+  models:
+    review_quality_classifier:
+      type: "zero-shot-classification"
+      model_name: "facebook/bart-large-mnli"
+      labels: 
+        - "detailed with specific information and experience"
+        - "basic accurate information"
+        - "generic brief with no details"
+      batch_size: 10
+    
+    purchase_prediction:
+      type: "xgboost"
+      features:
+        - "PRODUCT_TYPE"
+        - "PRODUCT_LAYOUT"
+        - "PAGE_LOAD_TIME"
+        - "PRODUCT_RATING"
+        - "REVIEW_SENTIMENT"
+      target: "PURCHASE_DECISION"
+      test_size: 0.2
+      random_state: 42
+  
+  # Ray Configuration
+  ray:
+    scale_factor: 2
+    num_cpus: 25
+    execution_options:
+      verbose_progress: false
+      enable_operator_progress_bars: false
+      enable_progress_bars: false
+  
+  # Cortex AI Configuration
+  cortex:
+    sentiment_function: "SNOWFLAKE.CORTEX.SENTIMENT"
+    translate_function: "SNOWFLAKE.CORTEX.TRANSLATE"
+    complete_function: "SNOWFLAKE.CORTEX.COMPLETE"
+
+# SPCS Configuration (for production deployment)
+spcs:
+  # Image Repository
+  image_repository:
+    name: "ml_models_repo"
+    database: "HOL_DB"
+    schema: "HOL_SCHEMA"
+  
+  # Services
+  services:
+    streamlit_app:
+      name: "customer_conversion_app"
+      compute_pool: "HOL_COMPUTE_POOL_HIGHMEM"
+      min_instances: 1
+      max_instances: 3
+      spec:
+        containers:
+          - name: "streamlit"
+            image: "streamlit_app:latest"
+            ports:
+              - 8501
+            readiness_probe:
+              port: 8501
+              path: "/"
+        endpoints:
+          - name: "streamlit"
+            port: 8501
+            public: true
+    
+    ml_service:
+      name: "ml_inference_service"
+      compute_pool: "HOL_COMPUTE_POOL_HIGHMEM"
+      min_instances: 1
+      max_instances: 5
+      spec:
+        containers:
+          - name: "ml_api"
+            image: "ml_inference:latest"
+            ports:
+              - 8000
+            readiness_probe:
+              port: 8000
+              path: "/health"
+        endpoints:
+          - name: "ml_api"
+            port: 8000
+            public: true
+
+# Application Configuration
+app:
+  streamlit:
+    title: "Review Analysis Dashboard"
+    layout: "wide"
+    cache_ttl: 600  # seconds
+    
+    # Chart Configuration
+    charts:
+      sentiment_bins: 5
+      sentiment_labels:
+        - "Very Negative"
+        - "Negative"
+        - "Neutral"
+        - "Positive"
+        - "Very Positive"
+    
+    # Filters
+    filters:
+      - "PRODUCT_TYPE"
+      - "PRODUCT_LAYOUT"
+      - "REVIEW_QUALITY"
+
+# Monitoring and Logging
+monitoring:
+  # Task Monitoring
+  tasks:
+    data_refresh:
+      schedule: "USING CRON 0 2 * * * UTC"  # Daily at 2 AM UTC
+      warehouse: "HOL_WAREHOUSE"
+      enabled: true
+    
+    model_retraining:
+      schedule: "USING CRON 0 4 * * 0 UTC"  # Weekly on Sunday at 4 AM UTC
+      warehouse: "HOL_WAREHOUSE"
+      enabled: false  # Enable when ready for production
+  
+  # Logging Configuration
+  logging:
+    level: "INFO"
+    retention_days: 30
+    table_name: "PIPELINE_LOGS"
+
+# Environment Settings
+environment:
+  development:
+    warehouse_size: "X-SMALL"
+    auto_suspend: 300  # 5 minutes
+    max_compute_nodes: 1
+  
+  staging:
+    warehouse_size: "SMALL"
+    auto_suspend: 1800  # 30 minutes
+    max_compute_nodes: 2
+  
+  production:
+    warehouse_size: "MEDIUM"
+    auto_suspend: 3600  # 1 hour
+    max_compute_nodes: 3
+    backup_enabled: true
+    monitoring_enabled: true 
