@@ -1,15 +1,7 @@
 # Snowflake CLI Configuration
-# This file defines connections for use with the Snowflake CLI
-# Environment variables are used for sensitive values
+# Minimal config file - credentials are provided via environment variables
+# using the SNOWFLAKE_CONNECTIONS_<connection-name>_<key> pattern
 
-[connections]
-[connections.ml_pipeline]
-account = "<% ctx.env.SNOWFLAKE_ACCOUNT %>"
-user = "<% ctx.env.SNOWFLAKE_USER %>"
-password = "<% ctx.env.SNOWFLAKE_PASSWORD %>"
-role = "<% ctx.env.SNOWFLAKE_ROLE %>"
-warehouse = "<% ctx.env.SNOWFLAKE_WAREHOUSE %>"
-database = "<% ctx.env.SNOWFLAKE_DATABASE %>"
-schema = "<% ctx.env.SNOWFLAKE_SCHEMA %>"
-host = "<% ctx.env.SNOWFLAKE_ACCOUNT %>.snowflakecomputing.com"
-authenticator = "snowflake" 
+default_connection_name = "ml_pipeline"
+
+[connections.ml_pipeline] 

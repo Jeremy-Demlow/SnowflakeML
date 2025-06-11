@@ -29,6 +29,15 @@ on:
         default: false
 
 env:
+  # Snowflake CLI connection environment variables
+  SNOWFLAKE_CONNECTIONS_ML_PIPELINE_ACCOUNT: ${{ vars.SNOWFLAKE_ACCOUNT }}
+  SNOWFLAKE_CONNECTIONS_ML_PIPELINE_USER: ${{ vars.SNOWFLAKE_USER }}
+  SNOWFLAKE_CONNECTIONS_ML_PIPELINE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+  SNOWFLAKE_CONNECTIONS_ML_PIPELINE_ROLE: ${{ vars.SNOWFLAKE_ROLE }}
+  SNOWFLAKE_CONNECTIONS_ML_PIPELINE_WAREHOUSE: ${{ vars.SNOWFLAKE_WAREHOUSE }}
+  SNOWFLAKE_CONNECTIONS_ML_PIPELINE_DATABASE: ${{ vars.SNOWFLAKE_DATABASE }}
+  SNOWFLAKE_CONNECTIONS_ML_PIPELINE_SCHEMA: ${{ vars.SNOWFLAKE_SCHEMA }}
+  # Legacy environment variables for SQL commands
   SNOWFLAKE_ACCOUNT: ${{ vars.SNOWFLAKE_ACCOUNT }}
   SNOWFLAKE_USER: ${{ vars.SNOWFLAKE_USER }}
   SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
@@ -57,7 +66,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Snowflake CLI
-        uses: Snowflake-Labs/snowflake-cli-action@v1
+        uses: snowflakedb/snowflake-cli-action@v1.5
         with:
           cli-version: "latest"
           default-config-file-path: "./config.toml"
@@ -67,10 +76,9 @@ jobs:
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Configure Snowflake Connection
+      - name: Test Snowflake Connection
         run: |
-          # Test and set default connection (config loaded from config.toml)
-          snow connection set-default ml_pipeline
+          # Test connection (credentials loaded from environment variables)
           snow connection test
           echo "✅ Snowflake connection verified"
 
