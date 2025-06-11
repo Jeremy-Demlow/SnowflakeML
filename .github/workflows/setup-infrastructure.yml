@@ -57,9 +57,10 @@ jobs:
           fetch-depth: 0
 
       - name: Install Snowflake CLI
-        uses: snowflakedb/snowflake-cli-action@v1.5
+        uses: Snowflake-Labs/snowflake-cli-action@v1
         with:
           cli-version: "latest"
+          default-config-file-path: "./config.toml"
 
       - name: Install yq for YAML parsing
         run: |
@@ -68,22 +69,8 @@ jobs:
 
       - name: Configure Snowflake Connection
         run: |
-          # Create Snowflake CLI connection (password passed via flag for CI/CD compatibility)
-          snow connection add \
-            --connection-name ml_pipeline \
-            --account ${{ env.SNOWFLAKE_ACCOUNT }} \
-            --user ${{ env.SNOWFLAKE_USER }} \
-            --password ${{ env.SNOWFLAKE_PASSWORD }} \
-            --role ${{ env.SNOWFLAKE_ROLE }} \
-            --warehouse ${{ env.SNOWFLAKE_WAREHOUSE }} \
-            --database ${{ env.SNOWFLAKE_DATABASE }} \
-            --schema ${{ env.SNOWFLAKE_SCHEMA }}
-          
-          # Set as default connection
+          # Test and set default connection (config loaded from config.toml)
           snow connection set-default ml_pipeline
-
-      - name: Test Snowflake Connection
-        run: |
           snow connection test
           echo "✅ Snowflake connection verified"
 

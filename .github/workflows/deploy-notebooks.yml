@@ -46,22 +46,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Snowflake CLI
-        uses: snowflakedb/snowflake-cli-action@v1.5
+        uses: Snowflake-Labs/snowflake-cli-action@v1
         with:
           cli-version: "latest"
+          default-config-file-path: "./config.toml"
 
       - name: Configure Snowflake Connection
         run: |
-          snow connection add \
-            --connection-name ml_pipeline \
-            --account ${{ env.SNOWFLAKE_ACCOUNT }} \
-            --user ${{ env.SNOWFLAKE_USER }} \
-            --password ${{ env.SNOWFLAKE_PASSWORD }} \
-            --role ${{ env.SNOWFLAKE_ROLE }} \
-            --warehouse ${{ env.SNOWFLAKE_WAREHOUSE }} \
-            --database ${{ env.SNOWFLAKE_DATABASE }} \
-            --schema ${{ env.SNOWFLAKE_SCHEMA }}
-          
           snow connection set-default ml_pipeline
 
       - name: Quick Infrastructure Check
@@ -121,28 +112,15 @@ jobs:
           fetch-depth: 0
 
       - name: Install Snowflake CLI
-        uses: snowflakedb/snowflake-cli-action@v1.5
+        uses: Snowflake-Labs/snowflake-cli-action@v1
         with:
           cli-version: "latest"
+          default-config-file-path: "./config.toml"
 
       - name: Configure Snowflake Connection
         run: |
-          # Create Snowflake CLI connection
-          snow connection add \
-            --connection-name ml_pipeline \
-            --account ${{ env.SNOWFLAKE_ACCOUNT }} \
-            --user ${{ env.SNOWFLAKE_USER }} \
-            --password ${{ env.SNOWFLAKE_PASSWORD }} \
-            --role ${{ env.SNOWFLAKE_ROLE }} \
-            --warehouse ${{ env.SNOWFLAKE_WAREHOUSE }} \
-            --database ${{ env.SNOWFLAKE_DATABASE }} \
-            --schema ${{ env.SNOWFLAKE_SCHEMA }}
-          
-          # Set as default connection
+          # Set default connection (config loaded from config.toml)
           snow connection set-default ml_pipeline
-
-      - name: Test Snowflake Connection
-        run: |
           snow connection test
           echo "✅ Snowflake connection verified"
 
