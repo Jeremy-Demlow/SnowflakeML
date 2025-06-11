@@ -51,13 +51,12 @@ jobs:
           cli-version: "latest"
 
       - name: Configure Snowflake Connection
-        env:
-          SNOWFLAKE_PASSWORD: ${{ env.SNOWFLAKE_PASSWORD }}
         run: |
           snow connection add \
             --connection-name ml_pipeline \
             --account ${{ env.SNOWFLAKE_ACCOUNT }} \
             --user ${{ env.SNOWFLAKE_USER }} \
+            --password ${{ env.SNOWFLAKE_PASSWORD }} \
             --role ${{ env.SNOWFLAKE_ROLE }} \
             --warehouse ${{ env.SNOWFLAKE_WAREHOUSE }} \
             --database ${{ env.SNOWFLAKE_DATABASE }} \
@@ -127,14 +126,13 @@ jobs:
           cli-version: "latest"
 
       - name: Configure Snowflake Connection
-        env:
-          SNOWFLAKE_PASSWORD: ${{ env.SNOWFLAKE_PASSWORD }}
         run: |
           # Create Snowflake CLI connection
           snow connection add \
             --connection-name ml_pipeline \
             --account ${{ env.SNOWFLAKE_ACCOUNT }} \
             --user ${{ env.SNOWFLAKE_USER }} \
+            --password ${{ env.SNOWFLAKE_PASSWORD }} \
             --role ${{ env.SNOWFLAKE_ROLE }} \
             --warehouse ${{ env.SNOWFLAKE_WAREHOUSE }} \
             --database ${{ env.SNOWFLAKE_DATABASE }} \
