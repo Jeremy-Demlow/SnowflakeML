@@ -1,0 +1,227 @@
+name: Setup Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+        - development
+        - staging
+        - production
+      force_recreate:
+        description: 'Force recreate resources (use with caution)'
+        required: false
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      environment:
+        required: false
+        type: string
+        default: 'development'
+      force_recreate:
+        required: false
+        type: boolean
+        default: false
+
+env:
+  SNOWFLAKE_ACCOUNT: ${{ vars.SNOWFLAKE_ACCOUNT }}
+  SNOWFLAKE_USER: ${{ vars.SNOWFLAKE_USER }}
+  SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+  SNOWFLAKE_ROLE: ${{ vars.SNOWFLAKE_ROLE }}
+  SNOWFLAKE_WAREHOUSE: ${{ vars.SNOWFLAKE_WAREHOUSE }}
+  SNOWFLAKE_DATABASE: ${{ vars.SNOWFLAKE_DATABASE }}
+  SNOWFLAKE_SCHEMA: ${{ vars.SNOWFLAKE_SCHEMA }}
+
+jobs:
+  setup-infrastructure:
+    name: Setup Snowflake Infrastructure
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'development' }}
+    
+    outputs:
+      infrastructure_ready: ${{ steps.verify.outputs.ready }}
+      database_exists: ${{ steps.check.outputs.database_exists }}
+      schema_exists: ${{ steps.check.outputs.schema_exists }}
+      warehouse_exists: ${{ steps.check.outputs.warehouse_exists }}
+      compute_pool_exists: ${{ steps.check.outputs.compute_pool_exists }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Snowflake CLI
+        uses: snowflakedb/snowflake-cli-action@v1.5
+        with:
+          cli-version: "latest"
+
+      - name: Install yq for YAML parsing
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Configure Snowflake Connection
+        run: |
+          # Create Snowflake CLI connection
+          snow connection add ml_pipeline \
+            --account ${{ env.SNOWFLAKE_ACCOUNT }} \
+            --user ${{ env.SNOWFLAKE_USER }} \
+            --password ${{ env.SNOWFLAKE_PASSWORD }} \
+            --role ${{ env.SNOWFLAKE_ROLE }} \
+            --warehouse ${{ env.SNOWFLAKE_WAREHOUSE }} \
+            --database ${{ env.SNOWFLAKE_DATABASE }} \
+            --schema ${{ env.SNOWFLAKE_SCHEMA }}
+          
+          # Set as default connection
+          snow connection set-default ml_pipeline
+
+      - name: Test Snowflake Connection
+        run: |
+          snow connection test
+          echo "✅ Snowflake connection verified"
+
+      - name: Check Existing Infrastructure
+        id: check
+        run: |
+          echo "🔍 Checking existing infrastructure..."
+          
+          # Check if database exists
+          if snow sql -q "SHOW DATABASES LIKE '${{ env.SNOWFLAKE_DATABASE }}'" | grep -q "${{ env.SNOWFLAKE_DATABASE }}"; then
+            echo "database_exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Database ${{ env.SNOWFLAKE_DATABASE }} exists"
+          else
+            echo "database_exists=false" >> $GITHUB_OUTPUT
+            echo "❌ Database ${{ env.SNOWFLAKE_DATABASE }} does not exist"
+          fi
+          
+          # Check if schema exists
+          if snow sql -q "SHOW SCHEMAS IN DATABASE ${{ env.SNOWFLAKE_DATABASE }}" 2>/dev/null | grep -q "${{ env.SNOWFLAKE_SCHEMA }}"; then
+            echo "schema_exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Schema ${{ env.SNOWFLAKE_SCHEMA }} exists"
+          else
+            echo "schema_exists=false" >> $GITHUB_OUTPUT
+            echo "❌ Schema ${{ env.SNOWFLAKE_SCHEMA }} does not exist"
+          fi
+          
+          # Check if warehouse exists
+          if snow sql -q "SHOW WAREHOUSES LIKE '${{ env.SNOWFLAKE_WAREHOUSE }}'" | grep -q "${{ env.SNOWFLAKE_WAREHOUSE }}"; then
+            echo "warehouse_exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Warehouse ${{ env.SNOWFLAKE_WAREHOUSE }} exists"
+          else
+            echo "warehouse_exists=false" >> $GITHUB_OUTPUT
+            echo "❌ Warehouse ${{ env.SNOWFLAKE_WAREHOUSE }} does not exist"
+          fi
+          
+          # Check if compute pool exists
+          if snow sql -q "SHOW COMPUTE POOLS LIKE 'HOL_COMPUTE_POOL_HIGHMEM'" 2>/dev/null | grep -q "HOL_COMPUTE_POOL_HIGHMEM"; then
+            echo "compute_pool_exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Compute pool HOL_COMPUTE_POOL_HIGHMEM exists"
+          else
+            echo "compute_pool_exists=false" >> $GITHUB_OUTPUT
+            echo "❌ Compute pool HOL_COMPUTE_POOL_HIGHMEM does not exist"
+          fi
+
+      - name: Setup Infrastructure
+        if: ${{ steps.check.outputs.database_exists == 'false' || steps.check.outputs.schema_exists == 'false' || steps.check.outputs.warehouse_exists == 'false' || steps.check.outputs.compute_pool_exists == 'false' || inputs.force_recreate }}
+        run: |
+          echo "🚀 Running infrastructure setup..."
+          
+          # Make setup script executable
+          chmod +x ./cli-setup.sh
+          
+          # Run infrastructure setup
+          if [ "${{ inputs.force_recreate }}" == "true" ]; then
+            echo "⚠️  Force recreate enabled - this will drop and recreate resources"
+            echo "FORCE_RECREATE=true" >> $GITHUB_ENV
+          fi
+          
+          # Run the setup script
+          ./cli-setup.sh
+          
+          echo "✅ Infrastructure setup completed"
+
+      - name: Skip Infrastructure Setup
+        if: ${{ steps.check.outputs.database_exists == 'true' && steps.check.outputs.schema_exists == 'true' && steps.check.outputs.warehouse_exists == 'true' && steps.check.outputs.compute_pool_exists == 'true' && !inputs.force_recreate }}
+        run: |
+          echo "✅ All infrastructure already exists, skipping setup"
+          echo "  - Database: ${{ env.SNOWFLAKE_DATABASE }} ✅"
+          echo "  - Schema: ${{ env.SNOWFLAKE_SCHEMA }} ✅" 
+          echo "  - Warehouse: ${{ env.SNOWFLAKE_WAREHOUSE }} ✅"
+          echo "  - Compute Pool: HOL_COMPUTE_POOL_HIGHMEM ✅"
+
+      - name: Verify Infrastructure
+        id: verify
+        run: |
+          echo "🔍 Verifying infrastructure setup..."
+          
+          # Verify all components exist and are accessible
+          failed=false
+          
+          # Test database access
+          if ! snow sql -q "USE DATABASE ${{ env.SNOWFLAKE_DATABASE }}" > /dev/null 2>&1; then
+            echo "❌ Cannot access database ${{ env.SNOWFLAKE_DATABASE }}"
+            failed=true
+          else
+            echo "✅ Database ${{ env.SNOWFLAKE_DATABASE }} accessible"
+          fi
+          
+          # Test schema access
+          if ! snow sql -q "USE SCHEMA ${{ env.SNOWFLAKE_DATABASE }}.${{ env.SNOWFLAKE_SCHEMA }}" > /dev/null 2>&1; then
+            echo "❌ Cannot access schema ${{ env.SNOWFLAKE_SCHEMA }}"
+            failed=true
+          else
+            echo "✅ Schema ${{ env.SNOWFLAKE_SCHEMA }} accessible"
+          fi
+          
+          # Test warehouse
+          if ! snow sql -q "USE WAREHOUSE ${{ env.SNOWFLAKE_WAREHOUSE }}" > /dev/null 2>&1; then
+            echo "❌ Cannot use warehouse ${{ env.SNOWFLAKE_WAREHOUSE }}"
+            failed=true
+          else
+            echo "✅ Warehouse ${{ env.SNOWFLAKE_WAREHOUSE }} accessible"
+          fi
+          
+          # Test compute pool (this might fail if pool is not started, but that's ok)
+          if snow sql -q "SHOW COMPUTE POOLS LIKE 'HOL_COMPUTE_POOL_HIGHMEM'" | grep -q "HOL_COMPUTE_POOL_HIGHMEM"; then
+            echo "✅ Compute pool HOL_COMPUTE_POOL_HIGHMEM exists"
+          else
+            echo "⚠️  Compute pool HOL_COMPUTE_POOL_HIGHMEM not found (may need manual start)"
+          fi
+          
+          # Test external access integration
+          if snow sql -q "SHOW INTEGRATIONS LIKE 'ALLOW_ALL_ACCESS_INTEGRATION'" | grep -q "ALLOW_ALL_ACCESS_INTEGRATION"; then
+            echo "✅ External access integration exists"
+          else
+            echo "⚠️  External access integration not found"
+          fi
+          
+          if [ "$failed" == "true" ]; then
+            echo "❌ Infrastructure verification failed"
+            echo "ready=false" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "✅ Infrastructure verification successful"
+            echo "ready=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Infrastructure Summary
+        run: |
+          echo "📋 Infrastructure Setup Summary"
+          echo "================================"
+          echo "Environment: ${{ inputs.environment || 'development' }}"
+          echo "Database: ${{ env.SNOWFLAKE_DATABASE }}"
+          echo "Schema: ${{ env.SNOWFLAKE_SCHEMA }}"
+          echo "Warehouse: ${{ env.SNOWFLAKE_WAREHOUSE }}"
+          echo "Compute Pool: HOL_COMPUTE_POOL_HIGHMEM"
+          echo "External Access: ALLOW_ALL_ACCESS_INTEGRATION"
+          echo ""
+          echo "🎯 Next Steps:"
+          echo "1. Run notebook deployment workflow"
+          echo "2. Add notebooks to sf_nbs/ directory"
+          echo "3. Push changes to trigger deployment" 

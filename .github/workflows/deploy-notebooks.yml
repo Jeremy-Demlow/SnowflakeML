@@ -1,0 +1,234 @@
+name: Deploy Notebooks
+
+on:
+  push:
+    branches: [main]
+    paths: 
+      - 'sf_nbs/**'
+  workflow_dispatch:
+    inputs:
+      setup_infrastructure:
+        description: 'Setup infrastructure first (if needed)'
+        required: false
+        default: true
+        type: boolean
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+        - development
+        - staging
+        - production
+
+env:
+  SNOWFLAKE_ACCOUNT: ${{ vars.SNOWFLAKE_ACCOUNT }}
+  SNOWFLAKE_USER: ${{ vars.SNOWFLAKE_USER }}
+  SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+  SNOWFLAKE_ROLE: ${{ vars.SNOWFLAKE_ROLE }}
+  SNOWFLAKE_WAREHOUSE: ${{ vars.SNOWFLAKE_WAREHOUSE }}
+  SNOWFLAKE_DATABASE: ${{ vars.SNOWFLAKE_DATABASE }}
+  SNOWFLAKE_SCHEMA: ${{ vars.SNOWFLAKE_SCHEMA }}
+
+jobs:
+  check-infrastructure:
+    name: Check Infrastructure
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'development' }}
+    
+    outputs:
+      infrastructure_ready: ${{ steps.check.outputs.ready }}
+      needs_setup: ${{ steps.check.outputs.needs_setup }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Snowflake CLI
+        uses: snowflakedb/snowflake-cli-action@v1.5
+        with:
+          cli-version: "latest"
+
+      - name: Configure Snowflake Connection
+        run: |
+          snow connection add ml_pipeline \
+            --account ${{ env.SNOWFLAKE_ACCOUNT }} \
+            --user ${{ env.SNOWFLAKE_USER }} \
+            --password ${{ env.SNOWFLAKE_PASSWORD }} \
+            --role ${{ env.SNOWFLAKE_ROLE }} \
+            --warehouse ${{ env.SNOWFLAKE_WAREHOUSE }} \
+            --database ${{ env.SNOWFLAKE_DATABASE }} \
+            --schema ${{ env.SNOWFLAKE_SCHEMA }}
+          
+          snow connection set-default ml_pipeline
+
+      - name: Quick Infrastructure Check
+        id: check
+        run: |
+          echo "🔍 Checking if infrastructure is ready..."
+          
+          failed=false
+          
+          # Test basic connectivity and resources
+          if ! snow sql -q "USE DATABASE ${{ env.SNOWFLAKE_DATABASE }}" > /dev/null 2>&1; then
+            echo "❌ Cannot access database ${{ env.SNOWFLAKE_DATABASE }}"
+            failed=true
+          fi
+          
+          if ! snow sql -q "USE SCHEMA ${{ env.SNOWFLAKE_DATABASE }}.${{ env.SNOWFLAKE_SCHEMA }}" > /dev/null 2>&1; then
+            echo "❌ Cannot access schema ${{ env.SNOWFLAKE_SCHEMA }}"
+            failed=true
+          fi
+          
+          if ! snow sql -q "USE WAREHOUSE ${{ env.SNOWFLAKE_WAREHOUSE }}" > /dev/null 2>&1; then
+            echo "❌ Cannot use warehouse ${{ env.SNOWFLAKE_WAREHOUSE }}"
+            failed=true
+          fi
+          
+          if [ "$failed" == "true" ]; then
+            echo "❌ Infrastructure not ready"
+            echo "ready=false" >> $GITHUB_OUTPUT
+            echo "needs_setup=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Infrastructure appears ready"
+            echo "ready=true" >> $GITHUB_OUTPUT
+            echo "needs_setup=false" >> $GITHUB_OUTPUT
+          fi
+
+  setup-infrastructure:
+    name: Setup Infrastructure (if needed)
+    needs: check-infrastructure
+    if: ${{ (needs.check-infrastructure.outputs.needs_setup == 'true' && inputs.setup_infrastructure != false) || inputs.setup_infrastructure == true }}
+    uses: ./.github/workflows/setup-infrastructure.yml
+    with:
+      environment: ${{ inputs.environment || 'development' }}
+      force_recreate: false
+    secrets: inherit
+
+  deploy-notebooks:
+    name: Deploy Notebooks to Snowflake
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'development' }}
+    needs: [check-infrastructure, setup-infrastructure]
+    if: ${{ always() && (needs.check-infrastructure.outputs.infrastructure_ready == 'true' || needs.setup-infrastructure.outputs.infrastructure_ready == 'true') }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Snowflake CLI
+        uses: snowflakedb/snowflake-cli-action@v1.5
+        with:
+          cli-version: "latest"
+
+      - name: Configure Snowflake Connection
+        run: |
+          # Create Snowflake CLI connection
+          snow connection add ml_pipeline \
+            --account ${{ env.SNOWFLAKE_ACCOUNT }} \
+            --user ${{ env.SNOWFLAKE_USER }} \
+            --password ${{ env.SNOWFLAKE_PASSWORD }} \
+            --role ${{ env.SNOWFLAKE_ROLE }} \
+            --warehouse ${{ env.SNOWFLAKE_WAREHOUSE }} \
+            --database ${{ env.SNOWFLAKE_DATABASE }} \
+            --schema ${{ env.SNOWFLAKE_SCHEMA }}
+          
+          # Set as default connection
+          snow connection set-default ml_pipeline
+
+      - name: Test Snowflake Connection
+        run: |
+          snow connection test
+          echo "✅ Snowflake connection verified"
+
+      - name: Check for Notebooks
+        id: notebooks
+        run: |
+          if [ ! -d "sf_nbs" ]; then
+            echo "❌ sf_nbs directory not found"
+            echo "Please create sf_nbs/ directory and add your .ipynb files there"
+            exit 1
+          fi
+          
+          notebook_count=$(find sf_nbs -name "*.ipynb" | wc -l)
+          if [ $notebook_count -eq 0 ]; then
+            echo "❌ No .ipynb files found in sf_nbs directory"
+            echo "Please add notebook files to sf_nbs/ directory"
+            exit 1
+          fi
+          
+          echo "✅ Found $notebook_count notebook(s) to deploy"
+          echo "count=$notebook_count" >> $GITHUB_OUTPUT
+
+      - name: Setup Git Repository in Snowflake
+        run: |
+          echo "🔧 Setting up Git repository in Snowflake..."
+          
+          # Create or replace the repository using SQL with API integration
+          snow sql -q "
+          CREATE OR REPLACE GIT REPOSITORY ${{ env.SNOWFLAKE_DATABASE }}.${{ env.SNOWFLAKE_SCHEMA }}.ML_PIPELINE_REPO
+          ORIGIN = 'https://github.com/${{ github.repository }}'
+          API_INTEGRATION = 'GITHUB_ALL'
+          "
+          echo "✅ Git repository created"
+          
+          # Fetch the repository
+          snow sql -q "
+          ALTER GIT REPOSITORY ${{ env.SNOWFLAKE_DATABASE }}.${{ env.SNOWFLAKE_SCHEMA }}.ML_PIPELINE_REPO
+          FETCH
+          "
+          echo "✅ Repository content fetched"
+
+      - name: Deploy Notebooks
+        run: |
+          echo "🚀 Deploying notebooks from sf_nbs/ directory..."
+          
+          # Deploy each notebook in sf_nbs/
+          find sf_nbs -name "*.ipynb" | while read -r notebook_path; do
+            # Extract notebook name without extension and path
+            notebook_name=$(basename "$notebook_path" .ipynb)
+            notebook_name_upper=$(echo "$notebook_name" | tr '[:lower:]' '[:upper:]')
+            
+            echo "📓 Deploying notebook: $notebook_path -> ${notebook_name_upper}_NOTEBOOK"
+            
+            # Create or replace the notebook using the discovered syntax
+            if snow sql -q "
+            CREATE OR REPLACE NOTEBOOK ${{ env.SNOWFLAKE_DATABASE }}.${{ env.SNOWFLAKE_SCHEMA }}.${notebook_name_upper}_NOTEBOOK
+            FROM '@${{ env.SNOWFLAKE_DATABASE }}.${{ env.SNOWFLAKE_SCHEMA }}.ML_PIPELINE_REPO/branches/${{ github.ref_name }}/sf_nbs/'
+            MAIN_FILE = '$(basename "$notebook_path")'
+            RUNTIME_NAME = 'SYSTEM\$BASIC_RUNTIME'
+            COMPUTE_POOL = 'HOL_COMPUTE_POOL_HIGHMEM'
+            QUERY_WAREHOUSE = '${{ env.SNOWFLAKE_WAREHOUSE }}'
+            EXTERNAL_ACCESS_INTEGRATIONS = ('ALLOW_ALL_ACCESS_INTEGRATION')
+            "; then
+              echo "✅ Successfully deployed ${notebook_name_upper}_NOTEBOOK"
+            else
+              echo "❌ Failed to deploy ${notebook_name_upper}_NOTEBOOK"
+              exit 1
+            fi
+            
+          done
+          
+          echo "🎉 All notebooks deployed successfully!"
+
+      - name: Deployment Summary
+        run: |
+          echo "📋 Deployment Summary"
+          echo "===================="
+          echo "Repository: ${{ github.repository }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Environment: ${{ inputs.environment || 'development' }}"
+          echo ""
+          echo "Deployed notebooks from sf_nbs/:"
+          find sf_nbs -name "*.ipynb" | while read -r notebook_path; do
+            notebook_name=$(basename "$notebook_path" .ipynb)
+            notebook_name_upper=$(echo "$notebook_name" | tr '[:lower:]' '[:upper:]')
+            echo "  📓 $(basename "$notebook_path") -> ${notebook_name_upper}_NOTEBOOK"
+          done
+          echo ""
+          echo "🔗 Access your notebooks in Snowflake:"
+          echo "   Database: ${{ env.SNOWFLAKE_DATABASE }}"
+          echo "   Schema: ${{ env.SNOWFLAKE_SCHEMA }}" 
