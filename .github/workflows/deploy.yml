@@ -159,10 +159,15 @@ jobs:
 
       - name: Deploy Notebooks
         if: steps.notebooks.outputs.found == 'true'
+        id: deploy
         env: 
           ENV: ${{ inputs.environment || 'development' }}
         run: |
           echo "🚀 Deploying notebooks to $ENV environment..."
+          
+          DEPLOYMENT_SUCCESS=true
+          DEPLOYED_COUNT=0
+          FAILED_COUNT=0
           
           # Deploy each notebook
           for notebook in sf_nbs/*.ipynb; do
@@ -170,18 +175,33 @@ jobs:
               notebook_name=$(basename "$notebook" .ipynb)
               echo "📓 Deploying: $notebook_name"
               
-              snow sql -q "CREATE OR REPLACE NOTEBOOK ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.${notebook_name^^}_NOTEBOOK
-                FROM '@ML_PIPELINE_REPO/sf_nbs/'
+              # Use current branch/commit for Git repository reference
+              if snow sql -q "CREATE OR REPLACE NOTEBOOK ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.${notebook_name^^}_NOTEBOOK
+                FROM '@ML_PIPELINE_REPO/branches/${{ github.ref_name }}/sf_nbs/'
                 MAIN_FILE = '$(basename "$notebook")'
                 RUNTIME_NAME = 'SYSTEM\$BASIC_RUNTIME'
                 COMPUTE_POOL = 'HOL_COMPUTE_POOL_HIGHMEM'
                 QUERY_WAREHOUSE = '$SNOWFLAKE_WAREHOUSE'
-                EXTERNAL_ACCESS_INTEGRATIONS = ('ALLOW_ALL_ACCESS_INTEGRATION');" || \
-              echo "⚠️  Failed to deploy $notebook_name, continuing..."
+                EXTERNAL_ACCESS_INTEGRATIONS = ('ALLOW_ALL_ACCESS_INTEGRATION');"; then
+                echo "✅ Successfully deployed: $notebook_name"
+                DEPLOYED_COUNT=$((DEPLOYED_COUNT + 1))
+              else
+                echo "❌ Failed to deploy: $notebook_name"
+                DEPLOYMENT_SUCCESS=false
+                FAILED_COUNT=$((FAILED_COUNT + 1))
+              fi
             fi
           done
           
-          echo "✅ Notebook deployment completed"
+          echo "deployment_success=$DEPLOYMENT_SUCCESS" >> $GITHUB_OUTPUT
+          echo "deployed_count=$DEPLOYED_COUNT" >> $GITHUB_OUTPUT
+          echo "failed_count=$FAILED_COUNT" >> $GITHUB_OUTPUT
+          
+          if [ "$DEPLOYMENT_SUCCESS" == "true" ]; then
+            echo "✅ All notebooks deployed successfully"
+          else
+            echo "⚠️  Some notebook deployments failed"
+          fi
 
       - name: Verify Deployment
         if: steps.notebooks.outputs.found == 'true'
@@ -197,8 +217,16 @@ jobs:
           echo "  Database: $SNOWFLAKE_DATABASE"
           echo "  Schema: $SNOWFLAKE_SCHEMA"
           echo "  Notebooks found: ${{ steps.notebooks.outputs.found }}"
+          
           if [ "${{ steps.notebooks.outputs.found }}" == "true" ]; then
-            echo "  🎉 Notebooks successfully deployed to Snowflake!"
+            if [ "${{ steps.deploy.outputs.deployment_success }}" == "true" ]; then
+              echo "  📊 Deployed: ${{ steps.deploy.outputs.deployed_count }} successful"
+              echo "  🎉 All notebooks successfully deployed to Snowflake!"
+            else
+              echo "  📊 Deployed: ${{ steps.deploy.outputs.deployed_count }} successful, ${{ steps.deploy.outputs.failed_count }} failed"
+              echo "  ⚠️  Some notebook deployments failed - please check the logs above"
+              exit 1
+            fi
           else
             echo "  ℹ️  No notebooks to deploy"
           fi 

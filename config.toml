@@ -3,5 +3,5 @@
 # using the SNOWFLAKE_CONNECTIONS_<connection-name>_<key> pattern
 
 default_connection_name = "ml_pipeline"
-
+ 
 [connections.ml_pipeline] 
