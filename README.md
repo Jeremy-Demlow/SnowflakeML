@@ -23,7 +23,7 @@ $ pip install -e .
 # compile to have changes apply to SnowflakeML
 $ nbdev_prepare
 ```
-
+ 
 ## Usage
 
 ### Installation
