@@ -1,223 +1,341 @@
-# Snowflake ML Pipeline - Team Deployment
+# Snowflake ML DevOps Pipeline
 
-A streamlined but powerful ML deployment pipeline for teams using Snowflake, designed for **quick iterations** and **reliable deployments**.
+A production-ready DevOps pipeline for deploying Machine Learning notebooks and infrastructure to Snowflake, showcasing modern MLOps practices with automated CI/CD, environment management, and infrastructure as code.
 
-## 🚀 **Quick Start**
+## 🚀 What We've Built
 
-### For New Team Members
+This project demonstrates **enterprise-grade MLOps** for Snowflake, featuring:
+
+### 🏗️ **Infrastructure as Code**
+- **Declarative Configuration**: YAML-based infrastructure definitions (`config.yaml`, `config-production.yaml`)
+- **Environment Separation**: Development, staging, and production environments with isolated resources
+- **Automated Provisioning**: Warehouses, databases, schemas, compute pools, and security integrations
+- **Resource Management**: Intelligent setup with dependency resolution and verification
+
+### 🔄 **CI/CD Pipeline**
+- **GitHub Actions Workflows**: Automated infrastructure setup and notebook deployment
+- **Smart Connectivity**: Connection testing without database dependencies (solves chicken-and-egg problems)
+- **Git Integration**: Direct deployment from GitHub repositories to Snowflake notebooks
+- **Environment-Specific Deployment**: Separate pipelines for dev/staging/production
+
+### 📊 **ML Notebook Management**
+- **Automated Deployment**: Jupyter notebooks deployed as Snowflake notebooks with compute pools
+- **Version Control**: Git-based versioning with branch/commit references
+- **Runtime Configuration**: Configurable compute resources and external access
+- **Deployment Verification**: Automated testing and validation of deployed notebooks
+
+### 🛡️ **Security & Governance**
+- **Secret Management**: GitHub secrets for credentials with environment isolation
+- **Role-Based Access**: Configurable Snowflake roles and permissions
+- **Network Security**: External access integrations and network rules
+- **Audit Trail**: Complete deployment history and logging
+
+## 📁 Project Structure
+
+```
+SnowflakeML/
+├── 📋 config.yaml                    # Main infrastructure configuration
+├── 📋 config-production.yaml         # Production-specific overrides
+├── 🔧 cli-setup.sh                   # Infrastructure setup script
+├── 📓 sf_nbs/                        # ML notebooks directory
+│   └── ml_pipeline.ipynb             # Example ML pipeline notebook
+├── 🔄 .github/workflows/             # CI/CD workflows
+│   ├── infrastructure.yml            # Infrastructure setup workflow
+│   └── deploy.yml                    # Notebook deployment workflow
+└── 🛠️ scripts/                       # Helper scripts
+    ├── setup-github-secrets.sh       # GitHub Actions configuration
+    └── test-git-repo.sh              # Git repository testing
+```
+
+## 🎯 Key Features Demonstrated
+
+### **Modern MLOps Practices**
+- ✅ **Infrastructure as Code** - Declarative, version-controlled infrastructure
+- ✅ **GitOps Workflow** - Git-driven deployments with automated CI/CD
+- ✅ **Environment Parity** - Consistent dev/staging/production environments
+- ✅ **Automated Testing** - Connection testing and deployment verification
+- ✅ **Secret Management** - Secure credential handling with GitHub secrets
+
+### **Snowflake-Specific Innovations**
+- ✅ **Compute Pool Management** - Automated setup of ML compute resources
+- ✅ **Git Repository Integration** - Direct GitHub-to-Snowflake deployment
+- ✅ **External Access Configuration** - Secure external API access for ML workloads
+- ✅ **Notebook Lifecycle Management** - Automated deployment and versioning
+
+### **Enterprise Readiness**
+- ✅ **Multi-Environment Support** - Separate dev/staging/production pipelines
+- ✅ **Error Handling** - Robust error detection and reporting
+- ✅ **Rollback Capability** - Version-controlled deployments enable easy rollbacks
+- ✅ **Monitoring & Logging** - Comprehensive deployment tracking
+
+## 🚀 Quick Start
+
+### 1. **Setup GitHub Secrets**
 ```bash
-# 1. Clone and setup
-git clone <repo>
-cd SnowflakeML
-
-# 2. Setup GitHub secrets (one-time)
 ./scripts/setup-github-secrets.sh
-
-# 3. Setup your dev environment
-./cli-setup.sh
 ```
 
-### For Daily Development
+### 2. **Deploy Infrastructure**
 ```bash
-# Test locally before pushing
-./scripts/test-notebook-deployment.sh
+# Development environment
+ENV=development ./cli-setup.sh
 
-# Push to deploy
-git add sf_nbs/my_notebook.ipynb
-git commit -m "Updated ML model"
-git push  # Auto-deploys to dev environment
+# Production environment  
+ENV=production ./cli-setup.sh
 ```
 
-## 🏗️ **Architecture**
+### 3. **Deploy Notebooks**
+- Add notebooks to `sf_nbs/` directory
+- Deploy using the helper script: `./scripts/deploy.sh dev`
+- Or commit and push to trigger automated deployment
+- Or manually trigger via GitHub Actions
 
-### **Two Simple Workflows**
-1. **`infrastructure.yml`** - Sets up Snowflake resources (triggered by config changes)
-2. **`deploy.yml`** - Deploys notebooks (triggered by `sf_nbs/` changes)
-
-### **Environment Separation**
-- **Development**: Uses `config.yaml` 
-- **Production**: Uses `config-production.yaml`
-- **Staging**: Uses `config-staging.yaml` (when created)
-
-### **Configuration-Driven**
-```yaml
-# config.yaml - Single source of truth
-snowflake:
-  warehouse: {name: "HOL_WAREHOUSE", size: "MEDIUM"}
-  compute_pool: {name: "HOL_COMPUTE_POOL_HIGHMEM", max_nodes: 3}
-  database: {name: "HOL_DB"}
-  
-data:
-  stages:
-    review_stage: {url: "s3://your-data/csv/"}
-```
-
-## 📁 **Project Structure**
-
-```
-├── sf_nbs/                    # Put your notebooks here
-│   └── ml_pipeline.ipynb      # Auto-deploys to Snowflake
-├── config.yaml               # Development configuration  
-├── config-production.yaml    # Production configuration
-├── cli-setup.sh              # Infrastructure setup script
-├── .github/workflows/
-│   ├── infrastructure.yml    # Infrastructure deployment
-│   └── deploy.yml            # Notebook deployment
-└── scripts/
-    ├── setup-github-secrets.sh    # GitHub setup helper
-    └── test-notebook-deployment.sh # Local testing
-```
-
-## 🔄 **Development Workflow**
-
-### **Local Development** (Quick Iterations)
+### 4. **Verify Deployment**
 ```bash
-# 1. Make changes to notebook
-vim sf_nbs/ml_pipeline.ipynb
-
-# 2. Test locally (optional but recommended)
-./scripts/test-notebook-deployment.sh
-
-# 3. Push when ready
-git add . && git commit -m "Updated model" && git push
+./scripts/test-git-repo.sh
 ```
 
-### **Environment Promotion**
+## 🎮 Deployment Commands
+
+### **Simple Deployment Helper** (Easiest)
+
+We've included a deployment helper script for maximum convenience:
+
 ```bash
+# Quick deployments
+./scripts/deploy.sh dev        # Deploy to development
+./scripts/deploy.sh staging    # Deploy to staging  
+./scripts/deploy.sh prod       # Deploy to production
+
+# Infrastructure setup
+./scripts/deploy.sh infra -e staging    # Setup staging infrastructure
+./scripts/deploy.sh infra -f            # Force recreate dev infrastructure
+
+# Check status
+./scripts/deploy.sh status     # View recent deployments
+```
+
+### **GitHub CLI Commands** (Full Control)
+
+Install GitHub CLI if you haven't already:
+```bash
+# macOS
+brew install gh
+
+# Windows
+winget install --id GitHub.cli
+
+# Linux
+sudo apt install gh
+```
+
+#### **Infrastructure Deployment**
+```bash
+# Deploy to development
+gh workflow run infrastructure.yml -f environment=development
+
+# Deploy to staging  
+gh workflow run infrastructure.yml -f environment=staging
+
+# Deploy to production
+gh workflow run infrastructure.yml -f environment=production
+
+# Force recreate resources
+gh workflow run infrastructure.yml -f environment=development -f force_recreate=true
+```
+
+#### **Notebook Deployment**
+```bash
+# Deploy notebooks to development
+gh workflow run deploy.yml -f environment=development
+
 # Deploy to staging
 gh workflow run deploy.yml -f environment=staging
 
 # Deploy to production  
 gh workflow run deploy.yml -f environment=production
+
+# Deploy without infrastructure setup (if infrastructure already exists)
+gh workflow run deploy.yml -f environment=development -f setup_infrastructure=false
 ```
 
-## 🛠️ **Key Features**
+#### **Check Deployment Status**
+```bash
+# List recent workflow runs
+gh run list
 
-### ✅ **Team-Friendly**
-- **Easy onboarding**: New team members run one script
-- **Environment isolation**: Dev changes don't break production
-- **Configuration-driven**: No hardcoded values in workflows
-- **Local testing**: Test before deploying
+# Watch a specific run in real-time
+gh run watch
 
-### ✅ **Flexible & Powerful**
-- **Auto-infrastructure**: Missing resources are created automatically
-- **Environment-specific configs**: Different settings per environment
-- **Git integration**: Notebooks deployed directly from repository
-- **Comprehensive setup**: All Snowflake resources configured
+# View logs for a specific run
+gh run view <run-id> --log
+```
 
-### ✅ **Developer Experience**
-- **Quick iterations**: Local testing for fast feedback
-- **Simple deployment**: Push to deploy
-- **Clear feedback**: Comprehensive logging and verification
-- **Helper scripts**: Easy GitHub setup and testing
 
-## 📋 **Configuration Management**
+### **Automated Triggers**
 
-### **Environment Variables** (GitHub Actions)
+The workflows also trigger automatically:
+
+#### **Infrastructure Workflow** triggers on:
 ```yaml
-# Set once in GitHub repository
-SNOWFLAKE_ACCOUNT: "your-account"
-SNOWFLAKE_USER: "your-user"
-SNOWFLAKE_PASSWORD: "your-password"  # Secret
-SNOWFLAKE_DATABASE: "HOL_DB_DEV"     # Environment-specific
+# When config files change
+push:
+  paths:
+    - 'config*.yaml'
+    - 'cli-setup.sh'
+  branches: [main]
 ```
 
-### **YAML Configuration** (Detailed Settings)
-- Infrastructure sizing (warehouse, compute pool)
-- Data sources and file formats  
-- ML model configurations
-- Network and security settings
+#### **Deploy Workflow** triggers on:
+```yaml
+# When notebooks change
+push:
+  paths:
+    - 'sf_nbs/**'
+  branches: [main]
+```
 
-## 🎯 **Perfect For Teams That Want**
+### **Quick Deployment Patterns**
 
-- **Fast notebook deployment** without complex DevOps
-- **Environment separation** to prevent accidents
-- **Configuration management** without overwhelming complexity
-- **Local testing** for quick iterations
-- **Team onboarding** that takes minutes, not hours
+#### **Development Workflow**
+```bash
+# 1. Make changes to notebook
+vim sf_nbs/ml_pipeline.ipynb
 
-## 🚀 **Getting Started**
+# 2. Test locally (optional)
+./scripts/test-git-repo.sh
 
-1. **Fork this repository**
-2. **Run setup script**: `./scripts/setup-github-secrets.sh`
-3. **Add your notebook**: Put `.ipynb` files in `sf_nbs/`
-4. **Push and deploy**: Git push automatically deploys
+# 3. Deploy via CLI
+gh workflow run deploy.yml -f environment=development
 
-That's it! Your team has a production-ready ML deployment pipeline.
+# 4. Or just push (auto-triggers)
+git add . && git commit -m "Updated model" && git push
+```
+
+### **Monitoring Commands**
+```bash
+# Watch all workflows
+gh run list --limit 10
+
+# Monitor specific environment
+gh run list --workflow=deploy.yml --json environment
+
+# Get deployment status
+gh api repos/:owner/:repo/actions/runs --jq '.workflow_runs[] | select(.name=="Deploy Notebooks") | {status, conclusion, created_at}'
+```
+
+## 🌍 Environment Management
+
+The pipeline supports multiple deployment environments:
+
+| Environment | Database | Schema | Use Case |
+|-------------|----------|--------|----------|
+| **Development** | `HOL_DB_DEV` | `HOL_SCHEMA_DEV` | Feature development and testing |
+| **Staging** | `HOL_DB_STAGING` | `HOL_SCHEMA_STAGING` | Pre-production validation |
+| **Production** | `HOL_DB_PROD` | `HOL_SCHEMA_PROD` | Live ML workloads |
+
+## 🔧 Configuration
+
+### Infrastructure Configuration (`config.yaml`)
+```yaml
+snowflake:
+  warehouse: HOL_WAREHOUSE
+  database: HOL_DB
+  schema: HOL_SCHEMA
+  compute_pool: HOL_COMPUTE_POOL_HIGHMEM
+
+ml_config:
+  models:
+    - name: customer_churn_model
+      type: classification
+  ray:
+    min_nodes: 1
+    max_nodes: 3
+```
+
+### GitHub Actions Configuration
+- **Repository Variables**: Account, user, role, warehouse settings
+- **Environment Variables**: Environment-specific database/schema names
+- **Secrets**: Snowflake password and sensitive credentials
+
+## 🎉 What Makes This Special
+
+### **Solves Real MLOps Challenges**
+1. **Environment Consistency** - Same infrastructure across all environments
+2. **Deployment Automation** - Zero-touch deployments from Git commits
+3. **Resource Management** - Automated compute pool and warehouse management
+4. **Security Integration** - Proper secret management and access controls
+
+### **Snowflake-Native Approach**
+- Leverages Snowflake's native Git integration
+- Uses Snowflake compute pools for ML workloads
+- Integrates with Snowflake's security model
+- Utilizes Snowflake CLI for automation
+
+### **Production-Ready Features**
+- Environment isolation and promotion workflows
+- Comprehensive error handling and rollback capabilities
+- Audit trails and deployment verification
+- Team collaboration with proper access controls
+
+## 🏆 Why This Matters for ML Teams
+
+### **Developer Experience**
+- **Simple Workflow**: `git push` → automatic deployment
+- **Local Testing**: Test infrastructure and deployments locally
+- **Clear Feedback**: Detailed deployment status and error reporting
+
+### **Operations Excellence**
+- **Consistent Environments**: Eliminate "works on my machine" issues
+- **Automated Rollbacks**: Quick recovery from deployment issues
+- **Audit Compliance**: Complete deployment history and change tracking
+
+### **Business Value**
+- **Faster Time-to-Market**: Automated deployments reduce manual overhead
+- **Reduced Risk**: Consistent, tested deployment processes
+- **Scalability**: Easy replication across teams and projects
+
+
+## 📚 Learn More
+
+- [Snowflake ML Documentation](https://docs.snowflake.com/en/developer-guide/snowpark-ml/index)
+- [Snowflake CLI Reference](https://docs.snowflake.com/en/developer-guide/snowflake-cli/index)
+- [GitHub Actions for MLOps](https://github.com/features/actions)
 
 ---
 
-## 📖 **Need Help?**
+**Built with ❄️ Snowflake • 🐙 GitHub Actions • 🐍 Python • 📊 MLOps Best Practices**
 
-- **Local testing**: Use `./scripts/test-notebook-deployment.sh`
-- **Environment setup**: Run `./cli-setup.sh verify`
-- **Configuration**: Check `config.yaml` and environment-specific configs
-- **Workflows**: See `.github/workflows/` for deployment logic
+*This project demonstrates enterprise-grade MLOps for Snowflake, showcasing automated infrastructure management, CI/CD pipelines, and production-ready ML deployment workflows.*
 
-# SnowflakeML
+### **Quick Reference Card**
 
+| Scenario | Helper Script | GitHub CLI |
+|----------|---------------|------------|
+| **Deploy notebook to dev** | `./scripts/deploy.sh dev` | `gh workflow run deploy.yml -f environment=development` |
+| **Deploy to production** | `./scripts/deploy.sh prod` | `gh workflow run deploy.yml -f environment=production` |
+| **Setup new environment** | `./scripts/deploy.sh infra -e staging` | `gh workflow run infrastructure.yml -f environment=staging` |
+| **Force recreate resources** | `./scripts/deploy.sh infra -f` | `gh workflow run infrastructure.yml -f environment=development -f force_recreate=true` |
+| **Check deployment status** | `./scripts/deploy.sh status` | `gh run list --limit 5` |
+| **Watch deployment live** | `gh run watch` | `gh run watch` |
+| **Emergency rollback** | `git checkout <commit> && ./scripts/deploy.sh prod` | `git checkout <previous-commit> && gh workflow run deploy.yml -f environment=production` |
 
-<!-- WARNING: THIS FILE WAS AUTOGENERATED! DO NOT EDIT! -->
+### **Troubleshooting Commands**
+```bash
+# Check if GitHub CLI is authenticated
+gh auth status
 
-This file will become your README and also the index of your
-documentation.
+# View failed workflow logs
+gh run list --status=failure
+gh run view <failed-run-id> --log
 
-## Developer Guide
+# Test local Snowflake connection
+snow connection test
 
-If you are new to using `nbdev` here are some useful pointers to get you
-started.
+# Verify Git repository setup
+./scripts/test-git-repo.sh
 
-### Install SnowflakeML in Development mode
-
-``` sh
-# make sure SnowflakeML package is installed in development mode
-$ pip install -e .
-
-# make changes under nbs/ directory
-# ...
-
-# compile to have changes apply to SnowflakeML
-$ nbdev_prepare
+# Check environment variables
+gh variable list
+gh secret list
 ```
- 
-## Usage
-
-### Installation
-
-Install latest from the GitHub
-[repository](https://github.com/Jeremy-Demlow/SnowflakeML):
-
-``` sh
-$ pip install git+https://github.com/Jeremy-Demlow/SnowflakeML.git
-```
-
-or from [conda](https://anaconda.org/Jeremy-Demlow/SnowflakeML)
-
-``` sh
-$ conda install -c Jeremy-Demlow SnowflakeML
-```
-
-or from [pypi](https://pypi.org/project/SnowflakeML/)
-
-``` sh
-$ pip install SnowflakeML
-```
-
-### Documentation
-
-Documentation can be found hosted on this GitHub
-[repository](https://github.com/Jeremy-Demlow/SnowflakeML)’s
-[pages](https://Jeremy-Demlow.github.io/SnowflakeML/). Additionally you
-can find package manager specific guidelines on
-[conda](https://anaconda.org/Jeremy-Demlow/SnowflakeML) and
-[pypi](https://pypi.org/project/SnowflakeML/) respectively.
-
-## How to use
-
-Fill me in please! Don’t forget code examples:
-
-``` python
-1+1
-```
-
-    2

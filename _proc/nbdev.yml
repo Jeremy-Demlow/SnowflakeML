@@ -1,9 +1,0 @@
-project:
-  output-dir: _docs
-
-website:
-  title: "SnowflakeML"
-  site-url: "https://Jeremy-Demlow.github.io/SnowflakeML"
-  description: "working through how to work with git, github and snowflake notebooks with RAY distrubited training"
-  repo-branch: main
-  repo-url: "https://github.com/Jeremy-Demlow/SnowflakeML"
