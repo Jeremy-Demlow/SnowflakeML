@@ -175,12 +175,19 @@ jobs:
         run: |
           echo "🔧 Setting up Git repository in Snowflake..."
           echo "Repository name: $GIT_REPO_NAME"
+          echo "Current branch: ${{ github.ref_name }}"
+          echo "Repository URL: ${{ github.server_url }}/${{ github.repository }}"
           
-          # Create If Not Exists Git repository
+          # Create Git repository if it doesn't exist
           snow sql -q "CREATE GIT REPOSITORY IF NOT EXISTS $GIT_REPO_NAME
             API_INTEGRATION = 'GITHUB_ALL'
             ORIGIN = '${{ github.server_url }}/${{ github.repository }}';"
-          echo "✅ Git repository configured"
+          
+          # Fetch latest branches to ensure our branch is available
+          echo "🔄 Fetching latest branches..."
+          snow sql -q "ALTER GIT REPOSITORY $GIT_REPO_NAME FETCH;"
+          
+          echo "✅ Git repository configured and fetched"
 
       - name: Deploy Notebooks
         if: steps.notebooks.outputs.found == 'true'
@@ -191,6 +198,11 @@ jobs:
         run: |
           echo "🚀 Deploying notebooks to $ENV environment..."
           echo "Using Git repository: $GIT_REPO_NAME"
+          echo "Using branch: ${{ github.ref_name }}"
+          
+          # Verify the branch exists in the repository
+          echo "🔍 Verifying branch exists..."
+          snow sql -q "SHOW BRANCHES IN GIT REPOSITORY $GIT_REPO_NAME;" || echo "⚠️  Could not list branches"
           
           DEPLOYMENT_SUCCESS=true
           DEPLOYED_COUNT=0
@@ -200,22 +212,37 @@ jobs:
           for notebook in sf_nbs/*.ipynb; do
             if [ -f "$notebook" ]; then
               notebook_name=$(basename "$notebook" .ipynb)
+              notebook_full_name="${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.${notebook_name^^}_NOTEBOOK"
               echo "📓 Deploying: $notebook_name"
               
-              # Use current branch/commit for Git repository reference
-              if snow sql -q "CREATE OR REPLACE NOTEBOOK ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.${notebook_name^^}_NOTEBOOK
-                FROM '@${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.${GIT_REPO_NAME}/branches/${{ github.ref_name }}/sf_nbs/'
-                MAIN_FILE = '$(basename "$notebook")'
-                RUNTIME_NAME = 'SYSTEM\$BASIC_RUNTIME'
-                COMPUTE_POOL = 'HOL_COMPUTE_POOL_HIGHMEM'
-                QUERY_WAREHOUSE = '$SNOWFLAKE_WAREHOUSE'
-                EXTERNAL_ACCESS_INTEGRATIONS = ('ALLOW_ALL_ACCESS_INTEGRATION');"; then
-                echo "✅ Successfully deployed: $notebook_name"
-                DEPLOYED_COUNT=$((DEPLOYED_COUNT + 1))
+              # Check if notebook already exists
+              if snow sql -q "SHOW NOTEBOOKS LIKE '${notebook_name^^}_NOTEBOOK' IN SCHEMA ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA};" 2>/dev/null | grep -q "${notebook_name^^}_NOTEBOOK"; then
+                echo "🔄 Notebook exists, updating to latest version..."
+                if snow sql -q "ALTER NOTEBOOK $notebook_full_name ADD LIVE VERSION FROM LAST;"; then
+                  echo "✅ Successfully updated: $notebook_name"
+                  DEPLOYED_COUNT=$((DEPLOYED_COUNT + 1))
+                else
+                  echo "❌ Failed to update: $notebook_name"
+                  DEPLOYMENT_SUCCESS=false
+                  FAILED_COUNT=$((FAILED_COUNT + 1))
+                fi
               else
-                echo "❌ Failed to deploy: $notebook_name"
-                DEPLOYMENT_SUCCESS=false
-                FAILED_COUNT=$((FAILED_COUNT + 1))
+                echo "🆕 Creating new notebook..."
+                # Use current branch/commit for Git repository reference
+                if snow sql -q "CREATE NOTEBOOK $notebook_full_name
+                  FROM '@${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.${GIT_REPO_NAME}/branches/${{ github.ref_name }}/sf_nbs/'
+                  MAIN_FILE = '$(basename "$notebook")'
+                  RUNTIME_NAME = 'SYSTEM\$BASIC_RUNTIME'
+                  COMPUTE_POOL = 'HOL_COMPUTE_POOL_HIGHMEM'
+                  QUERY_WAREHOUSE = '$SNOWFLAKE_WAREHOUSE'
+                  EXTERNAL_ACCESS_INTEGRATIONS = ('ALLOW_ALL_ACCESS_INTEGRATION');"; then
+                  echo "✅ Successfully created: $notebook_name"
+                  DEPLOYED_COUNT=$((DEPLOYED_COUNT + 1))
+                else
+                  echo "❌ Failed to create: $notebook_name"
+                  DEPLOYMENT_SUCCESS=false
+                  FAILED_COUNT=$((FAILED_COUNT + 1))
+                fi
               fi
             fi
           done
