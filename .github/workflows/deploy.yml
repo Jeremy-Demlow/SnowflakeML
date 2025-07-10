@@ -17,6 +17,11 @@ on:
         required: false
         default: true
         type: boolean
+      git_repository_name:
+        description: 'Git repository name in Snowflake'
+        required: false
+        default: ''
+        type: string
   push:
     paths:
       - 'sf_nbs/**'
@@ -130,6 +135,27 @@ jobs:
           cli-version: "latest"
           default-config-file-path: "./config.toml"
 
+      - name: Set Repository Name
+        id: repo_name
+        env:
+          ENV: ${{ inputs.environment || 'development' }}
+          CUSTOM_NAME: ${{ inputs.git_repository_name }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          # Generate repository name based on environment and repository
+          if [ -n "$CUSTOM_NAME" ]; then
+            # Use custom name if provided
+            GIT_REPO_NAME="$CUSTOM_NAME"
+          else
+            # Generate name from repository name and environment
+            REPO_CLEAN=$(echo "$REPO_NAME" | tr '[:lower:]' '[:upper:]' | sed 's/[^A-Z0-9]/_/g')
+            ENV_CLEAN=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')
+            GIT_REPO_NAME="${REPO_CLEAN}_${ENV_CLEAN}_REPO"
+          fi
+          
+          echo "repository_name=$GIT_REPO_NAME" >> $GITHUB_OUTPUT
+          echo "🏷️  Using Git repository name: $GIT_REPO_NAME"
+
       - name: Check for Notebooks
         id: notebooks
         run: |
@@ -144,17 +170,16 @@ jobs:
 
       - name: Setup Git Repository
         if: steps.notebooks.outputs.found == 'true'
+        env:
+          GIT_REPO_NAME: ${{ steps.repo_name.outputs.repository_name }}
         run: |
           echo "🔧 Setting up Git repository in Snowflake..."
+          echo "Repository name: $GIT_REPO_NAME"
           
-          # Create or replace Git repository
-          snow sql -q "CREATE OR REPLACE GIT REPOSITORY ML_PIPELINE_REPO
+          # Create If Not Exists Git repository
+          snow sql -q "CREATE GIT REPOSITORY IF NOT EXISTS $GIT_REPO_NAME
             API_INTEGRATION = 'GITHUB_ALL'
-            ORIGIN = '${{ github.server_url }}/${{ github.repository }}';" || \
-          snow sql -q "CREATE OR REPLACE GIT REPOSITORY ML_PIPELINE_REPO
-            GIT_CREDENTIALS = NULL
             ORIGIN = '${{ github.server_url }}/${{ github.repository }}';"
-          
           echo "✅ Git repository configured"
 
       - name: Deploy Notebooks
@@ -162,8 +187,10 @@ jobs:
         id: deploy
         env: 
           ENV: ${{ inputs.environment || 'development' }}
+          GIT_REPO_NAME: ${{ steps.repo_name.outputs.repository_name }}
         run: |
           echo "🚀 Deploying notebooks to $ENV environment..."
+          echo "Using Git repository: $GIT_REPO_NAME"
           
           DEPLOYMENT_SUCCESS=true
           DEPLOYED_COUNT=0
@@ -177,7 +204,7 @@ jobs:
               
               # Use current branch/commit for Git repository reference
               if snow sql -q "CREATE OR REPLACE NOTEBOOK ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.${notebook_name^^}_NOTEBOOK
-                FROM '@ML_PIPELINE_REPO/branches/${{ github.ref_name }}/sf_nbs/'
+                FROM '@${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.${GIT_REPO_NAME}/branches/${{ github.ref_name }}/sf_nbs/'
                 MAIN_FILE = '$(basename "$notebook")'
                 RUNTIME_NAME = 'SYSTEM\$BASIC_RUNTIME'
                 COMPUTE_POOL = 'HOL_COMPUTE_POOL_HIGHMEM'
@@ -211,11 +238,14 @@ jobs:
           echo "✅ Deployment verification completed"
 
       - name: Summary
+        env:
+          GIT_REPO_NAME: ${{ steps.repo_name.outputs.repository_name }}
         run: |
           echo "📋 Deployment Summary:"
           echo "  Environment: ${{ inputs.environment || 'development' }}"
           echo "  Database: $SNOWFLAKE_DATABASE"
           echo "  Schema: $SNOWFLAKE_SCHEMA"
+          echo "  Git Repository: $GIT_REPO_NAME"
           echo "  Notebooks found: ${{ steps.notebooks.outputs.found }}"
           
           if [ "${{ steps.notebooks.outputs.found }}" == "true" ]; then
