@@ -202,7 +202,7 @@ jobs:
           
           # Verify the branch exists in the repository
           echo "🔍 Verifying branch exists..."
-          snow sql -q "SHOW BRANCHES IN GIT REPOSITORY $GIT_REPO_NAME;" || echo "⚠️  Could not list branches"
+          snow sql -q "SHOW GIT BRANCHES IN $GIT_REPO_NAME;" || echo "⚠️  Could not list branches"
           
           DEPLOYMENT_SUCCESS=true
           DEPLOYED_COUNT=0
