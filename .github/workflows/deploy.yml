@@ -25,7 +25,7 @@ on:
   push:
     paths:
       - 'sf_nbs/**'
-    branches: [main]
+    # branches: [main,]
 
 env:
   # Snowflake CLI connection environment variables
@@ -215,35 +215,21 @@ jobs:
               notebook_full_name="${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.${notebook_name^^}_NOTEBOOK"
               echo "📓 Deploying: $notebook_name"
               
-              # Check if notebook already exists
-              if snow sql -q "SHOW NOTEBOOKS LIKE '${notebook_name^^}_NOTEBOOK' IN SCHEMA ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA};" 2>/dev/null | grep -q "${notebook_name^^}_NOTEBOOK"; then
-                echo "🔄 Notebook exists, updating to latest version..."
-                if snow sql -q "ALTER NOTEBOOK $notebook_full_name ADD LIVE VERSION FROM LAST;"; then
-                  echo "✅ Successfully updated: $notebook_name"
-                  DEPLOYED_COUNT=$((DEPLOYED_COUNT + 1))
-                else
-                  echo "❌ Failed to update: $notebook_name"
-                  DEPLOYMENT_SUCCESS=false
-                  FAILED_COUNT=$((FAILED_COUNT + 1))
-                fi
-              else
-                echo "🆕 Creating new notebook..."
-                # Use current branch/commit for Git repository reference
-                if snow sql -q "CREATE NOTEBOOK $notebook_full_name
+                              # Deploy notebook from current branch
+                if snow sql -q "CREATE OR REPLACE NOTEBOOK $notebook_full_name
                   FROM '@${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.${GIT_REPO_NAME}/branches/${{ github.ref_name }}/sf_nbs/'
                   MAIN_FILE = '$(basename "$notebook")'
                   RUNTIME_NAME = 'SYSTEM\$BASIC_RUNTIME'
                   COMPUTE_POOL = 'HOL_COMPUTE_POOL_HIGHMEM'
                   QUERY_WAREHOUSE = '$SNOWFLAKE_WAREHOUSE'
                   EXTERNAL_ACCESS_INTEGRATIONS = ('ALLOW_ALL_ACCESS_INTEGRATION');"; then
-                  echo "✅ Successfully created: $notebook_name"
+                  echo "✅ Successfully deployed: $notebook_name"
                   DEPLOYED_COUNT=$((DEPLOYED_COUNT + 1))
                 else
-                  echo "❌ Failed to create: $notebook_name"
+                  echo "❌ Failed to deploy: $notebook_name"
                   DEPLOYMENT_SUCCESS=false
                   FAILED_COUNT=$((FAILED_COUNT + 1))
                 fi
-              fi
             fi
           done
           
