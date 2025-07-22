@@ -1,0 +1,23 @@
+# Core ML and optimization libraries
+scikit-learn
+xgboost
+hyperopt
+numpy
+
+# Data validation and configuration
+pydantic
+
+# Optional but recommended for enhanced functionality
+pandas          # For data manipulation
+matplotlib      # For plotting optimization history
+seaborn         # For better visualizations
+
+# # Development and testing (optional)
+# pytest          # For running tests
+# jupyter         # For notebook development
+# ipykernel       # For Jupyter kernel
+
+# # Additional useful ML libraries (optional)
+# lightgbm        # Alternative gradient boosting
+# catboost        # Another gradient boosting option
+# optuna          # Alternative hyperparameter optimization

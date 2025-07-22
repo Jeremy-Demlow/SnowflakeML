@@ -156,3 +156,5 @@ config.yml
 
 spcs-deploy.sh
 setup.sql
+
+/ml_jobs/*
