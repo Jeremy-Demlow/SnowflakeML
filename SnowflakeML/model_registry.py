@@ -4,12 +4,11 @@ Clean separation of model configurations from core logic
 """
 
 import numpy as np
-from typing import Dict, Tuple, Any, Callable, Optional
+from typing import Dict, Tuple, Any, Callable, Optional, List
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
 from hyperopt import hp
-
 
 @dataclass
 class ModelDefinition:
@@ -60,8 +59,12 @@ class ModelRegistry:
         return decorator
     
     @classmethod
-    def get_model(cls, name: str) -> ModelDefinition:
+    def get_model(cls, name: str, task_type: str) -> ModelDefinition:
         """Get model definition by name"""
+        # Handle 'auto' model selection
+        if name == 'auto':
+            name = cls.auto_select(task_type)
+        
         if name not in cls._providers:
             available = list(cls._providers.keys())
             raise ValueError(f"Model '{name}' not found. Available: {available}")
@@ -74,7 +77,11 @@ class ModelRegistry:
                 f"Model '{name}' requires: pip install {' '.join(definition.requires)}"
             )
         
-        return provider.get_model_definition()
+        definition = provider.get_model_definition()
+        if task_type not in definition.task_types and 'both' not in definition.task_types:
+            raise ValueError(f"Model '{name}' does not support task type '{task_type}'")
+        
+        return definition
     
     @classmethod
     def list_models(cls, task_type: Optional[str] = None) -> Dict[str, str]:
@@ -95,8 +102,7 @@ class ModelRegistry:
         """Auto-select best available model for task type"""
         # Priority order for different tasks
         priorities = {
-            'binary_classification': ['xgb_clf', 'lgb_clf', 'rf_clf'],
-            'multiclass_classification': ['xgb_clf', 'lgb_clf', 'rf_clf'],
+            'classification': ['xgb_clf', 'lgb_clf', 'rf_clf'],
             'regression': ['xgb_reg', 'lgb_reg', 'rf_reg']
         }
         
@@ -107,13 +113,13 @@ class ModelRegistry:
                 provider = cls._providers[model_name]
                 if provider.is_available():
                     definition = provider.get_model_definition()
-                    if task_type.endswith('classification') and 'classification' in definition.task_types:
+                    if task_type == 'classification' and task_type in definition.task_types:
                         return model_name
-                    elif task_type == 'regression' and 'regression' in definition.task_types:
+                    elif task_type == 'regression' and task_type in definition.task_types:
                         return model_name
         
         # Fallback to RandomForest (always available)
-        return 'rf_clf' if 'classification' in task_type else 'rf_reg'
+        return 'rf_clf' if task_type == 'classification' else 'rf_reg'
 
 
 @ModelRegistry.register('rf_clf')
@@ -308,82 +314,23 @@ class LightGBMRegressorProvider(ModelProvider):
         except ImportError:
             return False
 
-def detect_task_type(y: np.ndarray) -> str:
+
+def detect_task_type(y) -> str:
     """Detect task type from target variable"""
-    unique_vals = len(np.unique(y))
-    
-    if np.issubdtype(y.dtype, np.number) and unique_vals > 10:
+    # Simple task type detection based on data characteristics
+    if hasattr(y, 'nunique'):
+        unique_vals = y.nunique()
+        if unique_vals <= 10:
+            return 'classification'
         return 'regression'
-    elif unique_vals == 2:
-        return 'binary_classification'
-    else:
-        return 'multiclass_classification'
-
-
-def get_model_for_task(task_type: str, model_preference: Optional[str] = None) -> ModelDefinition:
-    """Get best model for a given task type"""
-    if model_preference:
-        # User specified a model
-        return ModelRegistry.get_model(model_preference)
-    else:
-        # Auto-select best available model
-        model_name = ModelRegistry.auto_select(task_type)
-        return ModelRegistry.get_model(model_name)
-
-
-if __name__ == "__main__":
-    # Example 1: List available models
-    print("Available Models:")
-    models = ModelRegistry.list_models()
-    for name, description in models.items():
-        print(f"  {name}: {description}")
     
-    print("\nClassification Models:")
-    clf_models = ModelRegistry.list_models('classification')
-    for name, description in clf_models.items():
-        print(f"  {name}: {description}")
-    
-    # Example 2: Get model definition
+    # For numpy arrays and other types
     try:
-        model_def = ModelRegistry.get_model('rf_clf')
-        print(f"\nModel: {model_def.name}")
-        print(f"Task types: {model_def.task_types}")
-        print(f"Parameters: {list(model_def.param_space.keys())}")
-    except Exception as e:
-        print(f"Error: {e}")
-    
-    # Example 3: Auto-selection
-    task_type = 'binary_classification'
-    auto_model = ModelRegistry.auto_select(task_type)
-    print(f"\nAuto-selected for {task_type}: {auto_model}")
-    
-    # Example 4: Adding custom model (extensibility)
-    @ModelRegistry.register('custom_svm')
-    class CustomSVMProvider(ModelProvider):
-        def get_model_definition(self) -> ModelDefinition:
-            from sklearn.svm import SVC
-            
-            return ModelDefinition(
-                model_cls=SVC,
-                param_space={
-                    'C': hp.loguniform('C', np.log(0.1), np.log(100)),
-                    'gamma': hp.choice('gamma', ['scale', 'auto']),
-                    'kernel': hp.choice('kernel', ['rbf', 'poly', 'sigmoid'])
-                },
-                name='Support Vector Machine',
-                task_types=['classification'],
-                requires=['scikit-learn'],
-                description='SVM for classification - good for small datasets'
-            )
-        
-        def is_available(self) -> bool:
-            try:
-                from sklearn.svm import SVC
-                return True
-            except ImportError:
-                return False
-    
-    print(f"\nAfter adding custom model:")
-    print(f"Available models: {list(ModelRegistry.list_models().keys())}")
-    
-    print("\nModel registry ready!")
+        unique_vals = len(np.unique(y))
+        if np.issubdtype(y.dtype, np.number) and unique_vals > 10:
+            return 'regression'
+        else:
+            return 'classification'
+    except:
+        # Default fallback
+        return 'regression'

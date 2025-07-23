@@ -75,6 +75,8 @@ class OptimizationResult:
     task_type: str
     model_name: str
     scoring_metric: str
+    best_model: Any = None
+    history: List[Dict[str, Any]] = None
 
 
 class OptimizationError(Exception):
@@ -200,13 +202,24 @@ class HyperOptimizer:
     def __init__(self, 
                  model_cls, 
                  param_space: Dict, 
-                 optimization_config: OptimizationConfig,
-                 scoring_config: ScoringConfig):
+                 optimization_config=None,
+                 scoring_config=None,
+                 max_evals=50,
+                 early_stopping=False):
         
         self.model_cls = model_cls
         self.param_space = param_space
-        self.opt_config = optimization_config
-        self.scoring_system = ScoringSystem(scoring_config)
+        
+        # Handle config objects or defaults
+        if optimization_config is None:
+            self.opt_config = OptimizationConfig(max_evals=max_evals)
+        else:
+            self.opt_config = optimization_config
+            
+        if scoring_config is None:
+            self.scoring_system = ScoringSystem(ScoringConfig())
+        else:
+            self.scoring_system = ScoringSystem(scoring_config)
         
         # State
         self.trials = Trials()
@@ -216,14 +229,20 @@ class HyperOptimizer:
         
         # Callbacks for extensibility
         self.on_trial_complete: List[Callable] = []
-        self.on_optimization_complete: List[Callable] = []
+        self._callback = None
+        self.best_model = None
+        self.best_params = {}
+        self.best_score = 0.0
+        self.history = []
+    
+    def set_callback(self, callback: Callable):
+        """Set callback for trial updates"""
+        self._callback = callback
     
     def add_callback(self, event: str, callback: Callable):
         """Add callbacks for extensibility (e.g., experiment tracking)"""
         if event == 'trial_complete':
             self.on_trial_complete.append(callback)
-        elif event == 'optimization_complete':
-            self.on_optimization_complete.append(callback)
         else:
             raise ValueError(f"Unknown event: {event}")
     
@@ -248,7 +267,7 @@ class HyperOptimizer:
             
             # Fire callbacks
             trial_data = {
-                'trial_number': self.trial_count,
+                'trial': self.trial_count,
                 'score': score,
                 'score_std': score_std,
                 'params': params,
@@ -258,6 +277,13 @@ class HyperOptimizer:
             
             for callback in self.on_trial_complete:
                 callback(trial_data)
+                
+            # Add to history
+            self.history.append(trial_data)
+            
+            # Call callback if provided
+            if self._callback:
+                self._callback(self.trial_count, score, params)
             
             # Progress indication
             if self.opt_config.verbose and self.trial_count % 10 == 0:
@@ -268,7 +294,7 @@ class HyperOptimizer:
         except Exception as e:
             # Fire failure callbacks
             trial_data = {
-                'trial_number': self.trial_count,
+                'trial': self.trial_count,
                 'error': str(e),
                 'params': params,
                 'status': 'failed'
@@ -276,6 +302,9 @@ class HyperOptimizer:
             
             for callback in self.on_trial_complete:
                 callback(trial_data)
+                
+            # Add to history
+            self.history.append(trial_data)
             
             return {'loss': float('inf'), 'status': STATUS_OK}
     
@@ -283,6 +312,7 @@ class HyperOptimizer:
         """Run hyperparameter optimization"""
         self.X, self.y = X, y
         self.trial_count = 0
+        self.history = []
         
         # Setup scoring
         task_type = self.scoring_system.setup_scoring(y)
@@ -312,9 +342,22 @@ class HyperOptimizer:
         best_loss = min([t['result']['loss'] for t in completed_trials]) if completed_trials else float('inf')
         best_score = -best_loss if self.scoring_system.greater_is_better else best_loss
         
+        # Train best model on full dataset
+        best_model = self.model_cls(
+            random_state=self.opt_config.random_state, 
+            **best_params
+        )
+        best_model.fit(X, y)
+        self.best_model = best_model
+        self.best_params = best_params
+        self.best_score = best_score
+        
+        # Store optimization result
         self.result = OptimizationResult(
             best_params=best_params,
             best_score=best_score,
+            best_model=best_model,
+            history=self.history,
             optimization_time=optimization_time,
             trials_completed=len(completed_trials),
             trials_failed=len(self.trials.trials) - len(completed_trials),
@@ -322,10 +365,6 @@ class HyperOptimizer:
             model_name=self.model_cls.__name__,
             scoring_metric=str(self.scoring_system.config.metric)
         )
-        
-        # Fire completion callbacks
-        for callback in self.on_optimization_complete:
-            callback(self.result)
         
         if self.opt_config.verbose:
             print(f"Optimization completed in {optimization_time:.1f}s")
@@ -336,46 +375,11 @@ class HyperOptimizer:
     
     def get_model(self):
         """Get best model fitted on all training data"""
-        if self.result is None:
+        if self.best_model is None:
             raise OptimizationError("Must call fit() first")
-        
-        model = self.model_cls(
-            random_state=self.opt_config.random_state, 
-            **self.result.best_params
-        )
-        model.fit(self.X, self.y)
-        return model
+        return self.best_model
     
     def score(self, X_test: np.ndarray, y_test: np.ndarray) -> float:
         """Score on test data"""
         model = self.get_model()
         return self.scoring_system.score_test(model, X_test, y_test)
-
-
-# ==============================================================================
-# SIMPLE USAGE EXAMPLE
-# ==============================================================================
-
-if __name__ == "__main__":
-    from sklearn.datasets import make_classification
-    from sklearn.ensemble import RandomForestClassifier
-    from hyperopt import hp
-    
-    # Generate data
-    X, y = make_classification(n_samples=1000, n_features=10, random_state=42)
-    
-    # Define model and space
-    model_cls = RandomForestClassifier
-    space = {
-        'n_estimators': hp.choice('n_estimators', [50, 100, 200]),
-        'max_depth': hp.choice('max_depth', [5, 10, None]),
-        'min_samples_split': hp.uniform('min_samples_split', 0.01, 0.1)
-    }
-    
-    # Create configs
-    opt_config = OptimizationConfig(max_evals=20)
-    scoring_config = ScoringConfig(metric='roc_auc')
-    
-    # Run optimization
-    optimizer = HyperOptimizer(model_cls, space, opt_config, scoring_config)
-    result = optimizer.fit(X, y)

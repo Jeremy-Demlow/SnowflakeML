@@ -1,3 +1,48 @@
 [build-system]
 requires = ["setuptools>=64.0"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "SnowflakeML"
+version = "0.1.0"
+description = "Type-driven ML optimization for Snowflake"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "SnowflakeML Team" }
+]
+dependencies = [
+    "fasttransform",
+    "numpy>=1.20.0",
+    "scikit-learn>=1.0.0",
+    "hyperopt>=0.2.7",
+    "pydantic>=2.0.0",
+    "snowflake-ml-python>=1.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "black>=23.0",
+    "isort>=5.0",
+]
+viz = [
+    "matplotlib>=3.0.0",
+    "seaborn>=0.11.0",
+]
+boost = [
+    "xgboost>=1.7.0",
+    "lightgbm>=4.0.0",
+]
+
+[tool.setuptools]
+packages = ["SnowflakeML"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
